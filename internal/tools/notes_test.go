@@ -3,10 +3,8 @@ package tools_test
 import (
 	"context"
 	"encoding/json"
-	"io"
-	"os"
-	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/tylern91/obsidian-mcp-server/internal/tools"
@@ -16,17 +14,13 @@ import (
 // testDeps returns a Deps wired to the committed testdata fixture vault.
 func testDeps(t *testing.T) tools.Deps {
 	t.Helper()
-	root := filepath.Join("..", "..", "testdata", "vault")
-	abs, err := filepath.Abs(root)
-	if err != nil {
-		t.Fatalf("filepath.Abs: %v", err)
-	}
+	root := "../../testdata/vault"
 	filter := vault.NewPathFilter(
 		[]string{".obsidian", ".git", "node_modules", ".DS_Store", ".trash"},
 		[]string{".md", ".markdown", ".txt", ".canvas"},
 	)
 	return tools.Deps{
-		Vault:       vault.New(abs, filter),
+		Vault:       vault.New(root, filter),
 		PrettyPrint: false,
 	}
 }
@@ -68,7 +62,7 @@ func TestReadNoteHandler_Success(t *testing.T) {
 		t.Fatalf("expected success, got IsError=true: %v", result.Content)
 	}
 
-	// Extract text content from result
+	// Extract text content from result.
 	if len(result.Content) == 0 {
 		t.Fatal("expected at least one content item")
 	}
@@ -78,8 +72,11 @@ func TestReadNoteHandler_Success(t *testing.T) {
 	}
 
 	var resp struct {
-		Path    string `json:"path"`
-		Content string `json:"content"`
+		Path       string `json:"path"`
+		Content    string `json:"content"`
+		Size       int64  `json:"size"`
+		ModTime    string `json:"modTime"`
+		TokenCount int    `json:"tokenCount"`
 	}
 	if err := json.Unmarshal([]byte(text.Text), &resp); err != nil {
 		t.Fatalf("json unmarshal: %v", err)
@@ -89,6 +86,15 @@ func TestReadNoteHandler_Success(t *testing.T) {
 	}
 	if resp.Content == "" {
 		t.Error("expected non-empty content")
+	}
+	if resp.TokenCount <= 0 {
+		t.Errorf("tokenCount = %d, want > 0", resp.TokenCount)
+	}
+	if resp.Size <= 0 {
+		t.Errorf("size = %d, want > 0", resp.Size)
+	}
+	if _, parseErr := time.Parse(time.RFC3339, resp.ModTime); parseErr != nil {
+		t.Errorf("modTime %q is not valid RFC3339: %v", resp.ModTime, parseErr)
 	}
 }
 
@@ -133,7 +139,7 @@ func TestWriteNoteHandler_Overwrite(t *testing.T) {
 		t.Fatalf("unexpected error: %v", result.Content)
 	}
 
-	// Read back via vault
+	// Read back via vault.
 	note, readErr := deps.Vault.ReadNote(context.Background(), "note.md")
 	if readErr != nil {
 		t.Fatalf("read back failed: %v", readErr)
@@ -173,6 +179,54 @@ func TestWriteNoteHandler_Append(t *testing.T) {
 	}
 }
 
+func TestWriteNoteHandler_Prepend(t *testing.T) {
+	deps := writeDeps(t)
+	handler := tools.WriteNoteHandler(deps)
+
+	// Write initial content.
+	req1 := makeRequest("path", "note.md", "content", "body\n", "mode", "overwrite")
+	if r, err := handler(context.Background(), req1); err != nil || r.IsError {
+		t.Fatalf("initial write failed: err=%v isError=%v", err, r.IsError)
+	}
+
+	// Prepend a prefix.
+	req2 := makeRequest("path", "note.md", "content", "prefix\n", "mode", "prepend")
+	result, err := handler(context.Background(), req2)
+	if err != nil {
+		t.Fatalf("prepend error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected error on prepend: %v", result.Content)
+	}
+
+	note, readErr := deps.Vault.ReadNote(context.Background(), "note.md")
+	if readErr != nil {
+		t.Fatalf("read back failed: %v", readErr)
+	}
+	const want = "prefix\nbody\n"
+	if note.Content != want {
+		t.Errorf("content = %q, want %q", note.Content, want)
+	}
+	if note.Content[:len("prefix\n")] != "prefix\n" {
+		t.Error("expected prepended content at start of file")
+	}
+}
+
+func TestWriteNoteHandler_ContentRequired(t *testing.T) {
+	deps := writeDeps(t)
+	handler := tools.WriteNoteHandler(deps)
+
+	result, err := handler(context.Background(), mcp.CallToolRequest{
+		Params: mcp.CallToolParams{Arguments: map[string]any{"path": "note.md"}},
+	})
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("expected IsError=true when content is missing")
+	}
+}
+
 func TestWriteNoteHandler_PathRequired(t *testing.T) {
 	deps := writeDeps(t)
 	handler := tools.WriteNoteHandler(deps)
@@ -188,40 +242,15 @@ func TestWriteNoteHandler_PathRequired(t *testing.T) {
 	}
 }
 
-// copyDir recursively copies src directory to dst.
-func copyDir(t *testing.T, src, dst string) {
-	t.Helper()
-	entries, err := os.ReadDir(src)
-	if err != nil {
-		t.Fatalf("copyDir ReadDir: %v", err)
-	}
-	if err := os.MkdirAll(dst, 0755); err != nil {
-		t.Fatalf("copyDir MkdirAll: %v", err)
-	}
-	for _, entry := range entries {
-		srcPath := filepath.Join(src, entry.Name())
-		dstPath := filepath.Join(dst, entry.Name())
-		if entry.IsDir() {
-			copyDir(t, srcPath, dstPath)
-		} else {
-			copyFile(t, srcPath, dstPath)
-		}
-	}
-}
+func TestWriteNoteHandler_Traversal(t *testing.T) {
+	deps := writeDeps(t)
+	handler := tools.WriteNoteHandler(deps)
 
-func copyFile(t *testing.T, src, dst string) {
-	t.Helper()
-	in, err := os.Open(src)
+	result, err := handler(context.Background(), makeRequest("path", "../escape.md", "content", "evil", "mode", "overwrite"))
 	if err != nil {
-		t.Fatalf("copyFile Open: %v", err)
+		t.Fatalf("handler error: %v", err)
 	}
-	defer in.Close()
-	out, err := os.Create(dst)
-	if err != nil {
-		t.Fatalf("copyFile Create: %v", err)
-	}
-	defer out.Close()
-	if _, err := io.Copy(out, in); err != nil {
-		t.Fatalf("copyFile Copy: %v", err)
+	if !result.IsError {
+		t.Fatal("expected IsError=true for path traversal attempt")
 	}
 }

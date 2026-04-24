@@ -106,13 +106,10 @@ func writeNoteHandler(deps Deps) server.ToolHandlerFunc {
 			Path    string `json:"path"`
 			Mode    string `json:"mode"`
 		}
-		result, _ := response.FormatJSON(writeResponse{Success: true, Path: path, Mode: modeStr}, deps.PrettyPrint)
+		result, err := response.FormatJSON(writeResponse{Success: true, Path: path, Mode: modeStr}, deps.PrettyPrint)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
 		return mcp.NewToolResultText(result), nil
 	}
 }
-
-// ReadNoteHandler returns the read_note handler for testing.
-func ReadNoteHandler(deps Deps) server.ToolHandlerFunc { return readNoteHandler(deps) }
-
-// WriteNoteHandler returns the write_note handler for testing.
-func WriteNoteHandler(deps Deps) server.ToolHandlerFunc { return writeNoteHandler(deps) }

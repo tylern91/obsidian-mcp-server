@@ -64,6 +64,3 @@ func listDirectoryHandler(deps Deps) server.ToolHandlerFunc {
 		return mcp.NewToolResultText(result), nil
 	}
 }
-
-// ListDirectoryHandler returns the list_directory handler for testing.
-func ListDirectoryHandler(deps Deps) server.ToolHandlerFunc { return listDirectoryHandler(deps) }
