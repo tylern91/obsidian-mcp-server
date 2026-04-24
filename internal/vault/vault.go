@@ -3,6 +3,7 @@ package vault
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,7 +42,7 @@ type DirEntry struct {
 type Service struct {
 	root   string // symlink-resolved absolute path to vault root
 	filter *PathFilter
-	mu     sync.Mutex // protects concurrent append/prepend read-modify-write
+	mu     sync.Mutex // protects concurrent file writes
 }
 
 // New creates a new vault Service.
@@ -67,32 +68,55 @@ func (s *Service) isUnderRoot(absPath string) bool {
 	return strings.HasPrefix(absPath, s.root+string(filepath.Separator))
 }
 
+// sanitizePath performs the shared lexical and filter validation (steps 1-2)
+// common to ResolvePath, WriteNote, and ListDirectory.
+// It rejects null bytes, absolute paths, ".." traversal, and ignored patterns.
+func (s *Service) sanitizePath(op, relativePath string) (cleaned, absPath string, err error) {
+	if strings.ContainsRune(relativePath, 0) {
+		return "", "", &PathError{Op: op, Path: relativePath, Err: ErrPathTraversal}
+	}
+
+	cleaned = filepath.Clean(relativePath)
+
+	if filepath.IsAbs(cleaned) {
+		return "", "", &PathError{Op: op, Path: relativePath, Err: ErrPathTraversal}
+	}
+
+	if cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+		return "", "", &PathError{Op: op, Path: relativePath, Err: ErrPathTraversal}
+	}
+
+	absPath = filepath.Join(s.root, cleaned)
+
+	if !s.isUnderRoot(absPath) {
+		return "", "", &PathError{Op: op, Path: relativePath, Err: ErrPathTraversal}
+	}
+
+	if s.filter != nil && s.filter.IsIgnored(relativePath) {
+		return "", "", &PathError{Op: op, Path: relativePath, Err: ErrPathRestricted}
+	}
+
+	return cleaned, absPath, nil
+}
+
+// resolveSymlink calls EvalSymlinks and verifies the target is under the vault root.
+func (s *Service) resolveSymlink(op, relativePath, absPath string) (string, error) {
+	resolved, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		return "", &PathError{Op: op, Path: relativePath, Err: err}
+	}
+	if !s.isUnderRoot(resolved) {
+		return "", &PathError{Op: op, Path: relativePath, Err: ErrSymlinkEscape}
+	}
+	return resolved, nil
+}
+
 // ResolvePath returns the absolute path for a relative vault path.
 // It applies security checks in order: lexical, filter, existence, symlink.
 func (s *Service) ResolvePath(relativePath string) (string, error) {
-	// Step 1: Lexical check.
-	cleaned := filepath.Clean(relativePath)
-
-	// Reject absolute paths.
-	if filepath.IsAbs(cleaned) {
-		return "", &PathError{Op: "resolve", Path: relativePath, Err: ErrPathTraversal}
-	}
-
-	// Reject if cleaned path starts with ".." component.
-	if cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
-		return "", &PathError{Op: "resolve", Path: relativePath, Err: ErrPathTraversal}
-	}
-
-	absPath := filepath.Join(s.root, cleaned)
-
-	// Verify the joined path is still under root (prefix check).
-	if !s.isUnderRoot(absPath) {
-		return "", &PathError{Op: "resolve", Path: relativePath, Err: ErrPathTraversal}
-	}
-
-	// Step 2: Path filter check.
-	if s.filter != nil && s.filter.IsIgnored(relativePath) {
-		return "", &PathError{Op: "resolve", Path: relativePath, Err: ErrPathRestricted}
+	cleaned, absPath, err := s.sanitizePath("resolve", relativePath)
+	if err != nil {
+		return "", err
 	}
 
 	// Extension check only for paths that have an extension (files, not dirs).
@@ -102,24 +126,14 @@ func (s *Service) ResolvePath(relativePath string) (string, error) {
 		}
 	}
 
-	// Step 3: Existence check with case-insensitive fallback.
+	// Existence check with case-insensitive fallback.
 	finalAbs, err := s.existenceCheck(relativePath, absPath)
 	if err != nil {
 		return "", err
 	}
 
-	// Step 4: Symlink check.
-	resolved, err := filepath.EvalSymlinks(finalAbs)
-	if err != nil {
-		return "", &PathError{Op: "resolve", Path: relativePath, Err: err}
-	}
-
-	// Verify symlink target is still under root.
-	if !s.isUnderRoot(resolved) {
-		return "", &PathError{Op: "resolve", Path: relativePath, Err: ErrSymlinkEscape}
-	}
-
-	return resolved, nil
+	// Symlink check.
+	return s.resolveSymlink("resolve", relativePath, finalAbs)
 }
 
 // existenceCheck tries os.Stat and falls back to case-insensitive matching.
@@ -162,6 +176,7 @@ func (s *Service) existenceCheck(relativePath, absPath string) (string, error) {
 }
 
 // ReadNote reads a note at the given relative path and returns its content and metadata.
+// It uses a single file descriptor for consistent size/modTime vs content.
 func (s *Service) ReadNote(ctx context.Context, path string) (*Note, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, &PathError{Op: "read", Path: path, Err: err}
@@ -172,12 +187,18 @@ func (s *Service) ReadNote(ctx context.Context, path string) (*Note, error) {
 		return nil, err
 	}
 
-	data, err := os.ReadFile(absPath)
+	f, err := os.Open(absPath)
+	if err != nil {
+		return nil, &PathError{Op: "read", Path: path, Err: err}
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
 	if err != nil {
 		return nil, &PathError{Op: "read", Path: path, Err: err}
 	}
 
-	info, err := os.Stat(absPath)
+	data, err := io.ReadAll(f)
 	if err != nil {
 		return nil, &PathError{Op: "read", Path: path, Err: err}
 	}
@@ -200,38 +221,31 @@ func (s *Service) WriteNote(ctx context.Context, path, content string, mode Writ
 		return &PathError{Op: "write", Path: path, Err: err}
 	}
 
-	// Lexical check (same as ResolvePath step 1, but without existence or symlink checks).
-	cleaned := filepath.Clean(path)
-
-	if filepath.IsAbs(cleaned) {
-		return &PathError{Op: "write", Path: path, Err: ErrPathTraversal}
-	}
-	if cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
-		return &PathError{Op: "write", Path: path, Err: ErrPathTraversal}
-	}
-
-	absPath := filepath.Join(s.root, cleaned)
-	if !s.isUnderRoot(absPath) {
-		return &PathError{Op: "write", Path: path, Err: ErrPathTraversal}
-	}
-
-	// Filter check (ignore only — no extension check for writes).
-	if s.filter != nil && s.filter.IsIgnored(path) {
-		return &PathError{Op: "write", Path: path, Err: ErrPathRestricted}
+	_, absPath, err := s.sanitizePath("write", path)
+	if err != nil {
+		return err
 	}
 
 	parentDir := filepath.Dir(absPath)
 
-	// Symlink escape check on parent directory (parent may not exist yet for new files).
-	if parentInfo, statErr := os.Stat(parentDir); statErr == nil && parentInfo.IsDir() {
-		resolvedParent, evalErr := filepath.EvalSymlinks(parentDir)
-		if evalErr != nil {
-			return &PathError{Op: "write", Path: path, Err: evalErr}
-		}
-		if !s.isUnderRoot(resolvedParent) {
-			return &PathError{Op: "write", Path: path, Err: ErrSymlinkEscape}
+	// Symlink escape check on parent directory (if it exists).
+	// Uses os.Stat to follow symlinks — a symlinked parent resolves to its target.
+	if _, statErr := os.Stat(parentDir); statErr == nil {
+		if _, err := s.resolveSymlink("write", path, parentDir); err != nil {
+			return err
 		}
 	}
+
+	// Symlink escape check on the file itself (if it exists as a symlink).
+	if info, statErr := os.Lstat(absPath); statErr == nil && info.Mode()&os.ModeSymlink != 0 {
+		if _, err := s.resolveSymlink("write", path, absPath); err != nil {
+			return err
+		}
+	}
+
+	// Lock for all write modes to prevent concurrent write data loss.
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	switch mode {
 	case WriteModeOverwrite:
@@ -243,9 +257,6 @@ func (s *Service) WriteNote(ctx context.Context, path, content string, mode Writ
 		}
 
 	case WriteModeAppend, WriteModePrepend:
-		s.mu.Lock()
-		defer s.mu.Unlock()
-
 		existing := readExistingOrEmpty(absPath)
 		if err := os.MkdirAll(parentDir, 0755); err != nil {
 			return &PathError{Op: "write", Path: path, Err: err}
@@ -263,7 +274,7 @@ func (s *Service) WriteNote(ctx context.Context, path, content string, mode Writ
 		}
 
 	default:
-		return fmt.Errorf("unknown write mode: %q", mode)
+		return &PathError{Op: "write", Path: path, Err: fmt.Errorf("unknown write mode: %q", mode)}
 	}
 
 	return nil
@@ -290,33 +301,26 @@ func (s *Service) ListDirectory(ctx context.Context, path string) ([]DirEntry, e
 	if path == "" {
 		absPath = s.root
 	} else {
-		// Lexical check.
-		cleaned := filepath.Clean(path)
-
-		if filepath.IsAbs(cleaned) {
-			return nil, &PathError{Op: "list", Path: path, Err: ErrPathTraversal}
+		_, resolved, err := s.sanitizePath("list", path)
+		if err != nil {
+			return nil, err
 		}
-		if cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
-			return nil, &PathError{Op: "list", Path: path, Err: ErrPathTraversal}
-		}
+		absPath = resolved
 
-		absPath = filepath.Join(s.root, cleaned)
-		if !s.isUnderRoot(absPath) {
-			return nil, &PathError{Op: "list", Path: path, Err: ErrPathTraversal}
-		}
-
-		// Filter check.
-		if s.filter != nil && s.filter.IsIgnored(path) {
-			return nil, &PathError{Op: "list", Path: path, Err: ErrPathRestricted}
-		}
-
-		// Existence check for the directory itself.
+		// Existence check.
 		if _, err := os.Stat(absPath); err != nil {
 			if os.IsNotExist(err) {
 				return nil, &PathError{Op: "list", Path: path, Err: ErrNotFound}
 			}
 			return nil, &PathError{Op: "list", Path: path, Err: err}
 		}
+
+		// Symlink escape check (consistent with ResolvePath step 4).
+		symlinkResolved, err := s.resolveSymlink("list", path, absPath)
+		if err != nil {
+			return nil, err
+		}
+		absPath = symlinkResolved
 	}
 
 	rawEntries, err := os.ReadDir(absPath)
@@ -324,20 +328,21 @@ func (s *Service) ListDirectory(ctx context.Context, path string) ([]DirEntry, e
 		return nil, &PathError{Op: "list", Path: path, Err: err}
 	}
 
-	var results []DirEntry
+	results := make([]DirEntry, 0, len(rawEntries))
 	for _, entry := range rawEntries {
 		name := entry.Name()
 
-		// Skip ignored entries.
-		if s.filter != nil && s.filter.IsIgnored(name) {
-			continue
-		}
-
+		// Compute relPath first so filter checks the full relative path.
 		var relPath string
 		if path == "" {
 			relPath = name
 		} else {
 			relPath = filepath.Join(path, name)
+		}
+
+		// Skip ignored entries using the full relative path.
+		if s.filter != nil && s.filter.IsIgnored(relPath) {
+			continue
 		}
 
 		info, err := entry.Info()

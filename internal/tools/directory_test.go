@@ -93,6 +93,19 @@ func TestListDirectoryHandler_Traversal(t *testing.T) {
 	}
 }
 
+func TestListDirectoryHandler_NonexistentDirectory(t *testing.T) {
+	deps := testDeps(t)
+	handler := tools.ListDirectoryHandler(deps)
+
+	result, err := handler(context.Background(), makeRequest("path", "NoSuchDir"))
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("expected IsError=true for nonexistent directory")
+	}
+}
+
 // extractText pulls the first TextContent from a CallToolResult.
 func extractText(t *testing.T, result *mcp.CallToolResult) string {
 	t.Helper()

@@ -3,6 +3,7 @@ package config_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/tylern91/obsidian-mcp-server/internal/config"
@@ -248,6 +249,45 @@ func TestLoad_UnrecognizedLogLevelDefaultsToWarn(t *testing.T) {
 	}
 	if cfg.LogLevel != "warn" {
 		t.Errorf("LogLevel = %q, want warn for unrecognized level", cfg.LogLevel)
+	}
+}
+
+func TestLoad_ErrorInvalidEnvVarMaxBatch(t *testing.T) {
+	vault := t.TempDir()
+	t.Setenv("OBSIDIAN_VAULT_PATH", vault)
+	t.Setenv("OBSIDIAN_MAX_BATCH", "not-a-number")
+
+	_, err := config.Load([]string{})
+	if err == nil {
+		t.Fatal("expected error for non-integer OBSIDIAN_MAX_BATCH, got nil")
+	}
+	if !strings.Contains(err.Error(), "OBSIDIAN_MAX_BATCH") {
+		t.Errorf("error = %q, want mention of OBSIDIAN_MAX_BATCH", err.Error())
+	}
+}
+
+func TestLoad_ErrorInvalidEnvVarMaxResults(t *testing.T) {
+	vault := t.TempDir()
+	t.Setenv("OBSIDIAN_VAULT_PATH", vault)
+	t.Setenv("OBSIDIAN_MAX_RESULTS", "-5")
+
+	_, err := config.Load([]string{})
+	if err == nil {
+		t.Fatal("expected error for negative OBSIDIAN_MAX_RESULTS, got nil")
+	}
+}
+
+func TestLoad_ErrorInvalidEnvVarPretty(t *testing.T) {
+	vault := t.TempDir()
+	t.Setenv("OBSIDIAN_VAULT_PATH", vault)
+	t.Setenv("OBSIDIAN_PRETTY", "notabool")
+
+	_, err := config.Load([]string{})
+	if err == nil {
+		t.Fatal("expected error for non-boolean OBSIDIAN_PRETTY, got nil")
+	}
+	if !strings.Contains(err.Error(), "OBSIDIAN_PRETTY") {
+		t.Errorf("error = %q, want mention of OBSIDIAN_PRETTY", err.Error())
 	}
 }
 

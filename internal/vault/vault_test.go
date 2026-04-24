@@ -558,4 +558,48 @@ func TestService_ListDirectory(t *testing.T) {
 			t.Errorf("error = %v, want errors.Is(ErrPathTraversal)", err)
 		}
 	})
+
+	t.Run("empty directory returns non-nil empty slice", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		svc := vault.New(dir, vault.NewPathFilter(defaultIgnore, defaultExts))
+
+		entries, err := svc.ListDirectory(ctx, "")
+		if err != nil {
+			t.Fatalf("ListDirectory on empty dir: %v", err)
+		}
+		if entries == nil {
+			t.Fatal("expected non-nil slice, got nil")
+		}
+		if len(entries) != 0 {
+			t.Errorf("expected 0 entries, got %d", len(entries))
+		}
+	})
+
+	t.Run("cancelled context returns error", func(t *testing.T) {
+		t.Parallel()
+		svc := newService(testVaultRoot)
+
+		cancelCtx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		_, err := svc.ListDirectory(cancelCtx, "")
+		if err == nil {
+			t.Fatal("expected error for cancelled context, got nil")
+		}
+	})
+}
+
+func TestService_ReadNote_CancelledContext(t *testing.T) {
+	t.Parallel()
+
+	svc := newService(testVaultRoot)
+
+	cancelCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := svc.ReadNote(cancelCtx, "Notes/simple.md")
+	if err == nil {
+		t.Fatal("expected error for cancelled context, got nil")
+	}
 }

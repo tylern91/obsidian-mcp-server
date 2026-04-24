@@ -75,27 +75,31 @@ func Load(args []string) (*Config, error) {
 
 	if !explicitFlags["pretty"] {
 		if v := os.Getenv("OBSIDIAN_PRETTY"); v != "" {
-			if b, err := strconv.ParseBool(v); err == nil {
-				cfg.PrettyPrint = b
+			b, err := strconv.ParseBool(v)
+			if err != nil {
+				return nil, fmt.Errorf("invalid OBSIDIAN_PRETTY value %q: %w", v, err)
 			}
+			cfg.PrettyPrint = b
 		}
 	}
 
 	if !explicitFlags["max-batch"] {
 		if v := os.Getenv("OBSIDIAN_MAX_BATCH"); v != "" {
-			if n, err := strconv.Atoi(v); err == nil {
-				cfg.MaxBatch = n
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				return nil, fmt.Errorf("invalid OBSIDIAN_MAX_BATCH value %q: %w", v, err)
 			}
-			// silently ignore invalid integers — default remains
+			cfg.MaxBatch = n
 		}
 	}
 
 	if !explicitFlags["max-results"] {
 		if v := os.Getenv("OBSIDIAN_MAX_RESULTS"); v != "" {
-			if n, err := strconv.Atoi(v); err == nil {
-				cfg.MaxResults = n
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				return nil, fmt.Errorf("invalid OBSIDIAN_MAX_RESULTS value %q: %w", v, err)
 			}
-			// silently ignore invalid integers — default remains
+			cfg.MaxResults = n
 		}
 	}
 
