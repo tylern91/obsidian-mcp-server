@@ -24,9 +24,9 @@ type PathError struct {
 	Err  error  // the underlying sentinel error
 }
 
-// Error returns a string in the format "<op> <path>: <err message>".
+// Error returns a string in the format "<op> "<path>": <err message>".
 func (e *PathError) Error() string {
-	return fmt.Sprintf("%s %s: %s", e.Op, e.Path, e.Err.Error())
+	return fmt.Sprintf("%s %q: %s", e.Op, e.Path, e.Err.Error())
 }
 
 // Unwrap returns the underlying error, enabling errors.Is and errors.As.

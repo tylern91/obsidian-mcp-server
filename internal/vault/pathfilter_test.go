@@ -2,6 +2,7 @@ package vault_test
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/tylern91/obsidian-mcp-server/internal/vault"
@@ -67,6 +68,18 @@ func TestPathFilter_IsIgnored(t *testing.T) {
 			ignorePatterns: []string{".git", "node_modules"},
 			path:           "project/node_modules/dep/index.js",
 			want:           true,
+		},
+		{
+			name:           "leading slash — matching component found",
+			ignorePatterns: []string{".git"},
+			path:           "/.git/config",
+			want:           true,
+		},
+		{
+			name:           "trailing slash — empty component skipped, no match",
+			ignorePatterns: []string{".git"},
+			path:           "Notes/subdir/",
+			want:           false,
 		},
 	}
 
@@ -178,7 +191,7 @@ func TestPathError_Error(t *testing.T) {
 		Err:  vault.ErrPathTraversal,
 	}
 
-	want := "resolve path/to/note.md: path traversal attempt"
+	want := `resolve "path/to/note.md": path traversal attempt`
 	if got := err.Error(); got != want {
 		t.Errorf("PathError.Error() = %q, want %q", got, want)
 	}
@@ -217,6 +230,13 @@ func TestPathError_AsUnwrap(t *testing.T) {
 	}
 	if target.Path != "missing-note.md" {
 		t.Errorf("target.Path = %q, want %q", target.Path, "missing-note.md")
+	}
+
+	// Also test through a fmt.Errorf wrapper to verify Unwrap propagation.
+	wrapped := fmt.Errorf("context: %w", original)
+	var wrappedTarget *vault.PathError
+	if !errors.As(wrapped, &wrappedTarget) {
+		t.Fatal("errors.As did not find *PathError through fmt.Errorf wrapper")
 	}
 }
 
