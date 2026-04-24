@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -29,8 +30,8 @@ const (
 
 // DirEntry represents a file or directory in the vault.
 type DirEntry struct {
-	Name    string    // filename (not full path)
-	Path    string    // relative path from vault root
+	Name    string // filename (not full path)
+	Path    string // relative path from vault root
 	IsDir   bool
 	Size    int64
 	ModTime time.Time
@@ -38,8 +39,9 @@ type DirEntry struct {
 
 // Service provides vault operations with path security.
 type Service struct {
-	root   string     // symlink-resolved absolute path to vault root
+	root   string // symlink-resolved absolute path to vault root
 	filter *PathFilter
+	mu     sync.Mutex // protects concurrent append/prepend read-modify-write
 }
 
 // New creates a new vault Service.
@@ -161,6 +163,10 @@ func (s *Service) existenceCheck(relativePath, absPath string) (string, error) {
 
 // ReadNote reads a note at the given relative path and returns its content and metadata.
 func (s *Service) ReadNote(ctx context.Context, path string) (*Note, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, &PathError{Op: "read", Path: path, Err: err}
+	}
+
 	absPath, err := s.ResolvePath(path)
 	if err != nil {
 		return nil, err
@@ -190,6 +196,10 @@ func (s *Service) ReadNote(ctx context.Context, path string) (*Note, error) {
 // WriteNote does NOT apply extension filtering — any file that passes the ignore
 // filter may be written.
 func (s *Service) WriteNote(ctx context.Context, path, content string, mode WriteMode) error {
+	if err := ctx.Err(); err != nil {
+		return &PathError{Op: "write", Path: path, Err: err}
+	}
+
 	// Lexical check (same as ResolvePath step 1, but without existence or symlink checks).
 	cleaned := filepath.Clean(path)
 
@@ -212,6 +222,17 @@ func (s *Service) WriteNote(ctx context.Context, path, content string, mode Writ
 
 	parentDir := filepath.Dir(absPath)
 
+	// Symlink escape check on parent directory (parent may not exist yet for new files).
+	if parentInfo, statErr := os.Stat(parentDir); statErr == nil && parentInfo.IsDir() {
+		resolvedParent, evalErr := filepath.EvalSymlinks(parentDir)
+		if evalErr != nil {
+			return &PathError{Op: "write", Path: path, Err: evalErr}
+		}
+		if !s.isUnderRoot(resolvedParent) {
+			return &PathError{Op: "write", Path: path, Err: ErrSymlinkEscape}
+		}
+	}
+
 	switch mode {
 	case WriteModeOverwrite:
 		if err := os.MkdirAll(parentDir, 0755); err != nil {
@@ -221,21 +242,23 @@ func (s *Service) WriteNote(ctx context.Context, path, content string, mode Writ
 			return &PathError{Op: "write", Path: path, Err: err}
 		}
 
-	case WriteModeAppend:
+	case WriteModeAppend, WriteModePrepend:
+		s.mu.Lock()
+		defer s.mu.Unlock()
+
 		existing := readExistingOrEmpty(absPath)
 		if err := os.MkdirAll(parentDir, 0755); err != nil {
-			return &PathError{Op: "write", Path: path, Err: err}
-		}
-		if err := os.WriteFile(absPath, []byte(existing+content), 0644); err != nil {
 			return &PathError{Op: "write", Path: path, Err: err}
 		}
 
-	case WriteModePrepend:
-		existing := readExistingOrEmpty(absPath)
-		if err := os.MkdirAll(parentDir, 0755); err != nil {
-			return &PathError{Op: "write", Path: path, Err: err}
+		var combined string
+		if mode == WriteModeAppend {
+			combined = existing + content
+		} else {
+			combined = content + existing
 		}
-		if err := os.WriteFile(absPath, []byte(content+existing), 0644); err != nil {
+
+		if err := os.WriteFile(absPath, []byte(combined), 0644); err != nil {
 			return &PathError{Op: "write", Path: path, Err: err}
 		}
 
@@ -258,6 +281,10 @@ func readExistingOrEmpty(absPath string) string {
 // ListDirectory lists the entries in a vault directory.
 // If path is empty, it lists the vault root.
 func (s *Service) ListDirectory(ctx context.Context, path string) ([]DirEntry, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, &PathError{Op: "list", Path: path, Err: err}
+	}
+
 	var absPath string
 
 	if path == "" {

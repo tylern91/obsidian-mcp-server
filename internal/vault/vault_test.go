@@ -74,9 +74,9 @@ func TestService_ResolvePath(t *testing.T) {
 			wantErr:   vault.ErrPathRestricted,
 		},
 		{
-			name:    "not found",
+			name:      "not found",
 			inputPath: "Notes/nonexistent.md",
-			wantErr: vault.ErrNotFound,
+			wantErr:   vault.ErrNotFound,
 		},
 	}
 
@@ -386,6 +386,83 @@ func TestService_WriteNote(t *testing.T) {
 			t.Errorf("error = %v, want message containing \"bogus\"", err)
 		}
 	})
+
+	t.Run("path traversal rejected", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		svc := vault.New(dir, vault.NewPathFilter(defaultIgnore, defaultExts))
+
+		err := svc.WriteNote(ctx, "../outside.md", "bad", vault.WriteModeOverwrite)
+		if err == nil {
+			t.Fatal("expected ErrPathTraversal, got nil")
+		}
+		if !errors.Is(err, vault.ErrPathTraversal) {
+			t.Errorf("error = %v, want errors.Is(ErrPathTraversal)", err)
+		}
+	})
+
+	t.Run("ignored path rejected", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		svc := vault.New(dir, vault.NewPathFilter(defaultIgnore, defaultExts))
+
+		err := svc.WriteNote(ctx, ".obsidian/config.md", "bad", vault.WriteModeOverwrite)
+		if err == nil {
+			t.Fatal("expected ErrPathRestricted, got nil")
+		}
+		if !errors.Is(err, vault.ErrPathRestricted) {
+			t.Errorf("error = %v, want errors.Is(ErrPathRestricted)", err)
+		}
+	})
+
+	t.Run("absolute path rejected", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		svc := vault.New(dir, vault.NewPathFilter(defaultIgnore, defaultExts))
+
+		err := svc.WriteNote(ctx, "/etc/passwd", "bad", vault.WriteModeOverwrite)
+		if err == nil {
+			t.Fatal("expected ErrPathTraversal, got nil")
+		}
+		if !errors.Is(err, vault.ErrPathTraversal) {
+			t.Errorf("error = %v, want errors.Is(ErrPathTraversal)", err)
+		}
+	})
+
+	t.Run("symlink escape rejected", func(t *testing.T) {
+		t.Parallel()
+		vaultDir := t.TempDir()
+		outsideDir := t.TempDir()
+
+		symlinkDir := filepath.Join(vaultDir, "EscapeDir")
+		if err := os.Symlink(outsideDir, symlinkDir); err != nil {
+			t.Skipf("symlinks not supported: %v", err)
+		}
+
+		svc := vault.New(vaultDir, vault.NewPathFilter(defaultIgnore, defaultExts))
+
+		err := svc.WriteNote(ctx, "EscapeDir/secret.md", "bad", vault.WriteModeOverwrite)
+		if err == nil {
+			t.Fatal("expected error for symlink escape, got nil")
+		}
+		if !errors.Is(err, vault.ErrSymlinkEscape) {
+			t.Errorf("error = %v, want errors.Is(ErrSymlinkEscape)", err)
+		}
+	})
+
+	t.Run("cancelled context returns error", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		svc := vault.New(dir, vault.NewPathFilter(defaultIgnore, defaultExts))
+
+		cancelCtx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		err := svc.WriteNote(cancelCtx, "Notes/cancelled.md", "content", vault.WriteModeOverwrite)
+		if err == nil {
+			t.Fatal("expected error for cancelled context, got nil")
+		}
+	})
 }
 
 // ----------------------------------------------------------------------------
@@ -465,6 +542,20 @@ func TestService_ListDirectory(t *testing.T) {
 			if e.ModTime.IsZero() {
 				t.Errorf("DirEntry %q: ModTime is zero", e.Name)
 			}
+		}
+	})
+
+	t.Run("traversal rejected", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		svc := vault.New(dir, vault.NewPathFilter(defaultIgnore, defaultExts))
+
+		_, err := svc.ListDirectory(ctx, "../")
+		if err == nil {
+			t.Fatal("expected ErrPathTraversal, got nil")
+		}
+		if !errors.Is(err, vault.ErrPathTraversal) {
+			t.Errorf("error = %v, want errors.Is(ErrPathTraversal)", err)
 		}
 	})
 }
