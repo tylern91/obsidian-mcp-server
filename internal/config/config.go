@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -73,25 +74,27 @@ func Load(args []string) (*Config, error) {
 
 	if !explicitFlags["pretty"] {
 		if v := os.Getenv("OBSIDIAN_PRETTY"); v != "" {
-			cfg.PrettyPrint = v == "true" || v == "1"
+			if b, err := strconv.ParseBool(v); err == nil {
+				cfg.PrettyPrint = b
+			}
 		}
 	}
 
 	if !explicitFlags["max-batch"] {
 		if v := os.Getenv("OBSIDIAN_MAX_BATCH"); v != "" {
-			n, err := parseInt(v)
-			if err == nil {
+			if n, err := strconv.Atoi(v); err == nil {
 				cfg.MaxBatch = n
 			}
+			// silently ignore invalid integers — default remains
 		}
 	}
 
 	if !explicitFlags["max-results"] {
 		if v := os.Getenv("OBSIDIAN_MAX_RESULTS"); v != "" {
-			n, err := parseInt(v)
-			if err == nil {
+			if n, err := strconv.Atoi(v); err == nil {
 				cfg.MaxResults = n
 			}
+			// silently ignore invalid integers — default remains
 		}
 	}
 
@@ -109,6 +112,9 @@ func Load(args []string) (*Config, error) {
 		cfg.LogLevel = "warn"
 	}
 
+	// Trim VaultPath before empty check to reject whitespace-only values.
+	cfg.VaultPath = strings.TrimSpace(cfg.VaultPath)
+
 	// Validate required fields.
 	if cfg.VaultPath == "" {
 		return nil, fmt.Errorf("vault path is required: use --vault or OBSIDIAN_VAULT_PATH")
@@ -120,11 +126,11 @@ func Load(args []string) (*Config, error) {
 	}
 
 	if cfg.MaxBatch < 1 {
-		return nil, fmt.Errorf("max-batch must be at least 1")
+		return nil, fmt.Errorf("max-batch must be at least 1, got %d", cfg.MaxBatch)
 	}
 
 	if cfg.MaxResults < 1 {
-		return nil, fmt.Errorf("max-results must be at least 1")
+		return nil, fmt.Errorf("max-results must be at least 1, got %d", cfg.MaxResults)
 	}
 
 	return cfg, nil
@@ -141,11 +147,4 @@ func splitTrimmed(s string) []string {
 		}
 	}
 	return out
-}
-
-// parseInt parses a decimal integer string.
-func parseInt(s string) (int, error) {
-	var n int
-	_, err := fmt.Sscanf(s, "%d", &n)
-	return n, err
 }

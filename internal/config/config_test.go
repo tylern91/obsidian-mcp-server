@@ -222,6 +222,10 @@ func TestLoad_ErrorMaxBatchLessThanOne(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for max-batch < 1, got nil")
 	}
+	want := "max-batch must be at least 1, got 0"
+	if err.Error() != want {
+		t.Errorf("error = %q, want %q", err.Error(), want)
+	}
 }
 
 func TestLoad_ErrorMaxResultsLessThanOne(t *testing.T) {
@@ -229,6 +233,10 @@ func TestLoad_ErrorMaxResultsLessThanOne(t *testing.T) {
 	_, err := config.Load([]string{"--vault", vault, "--max-results", "0"})
 	if err == nil {
 		t.Fatal("expected error for max-results < 1, got nil")
+	}
+	want := "max-results must be at least 1, got 0"
+	if err.Error() != want {
+		t.Errorf("error = %q, want %q", err.Error(), want)
 	}
 }
 
