@@ -14,9 +14,10 @@ test:
 vet:
 	go vet ./...
 
-## fmt: format all Go source files
+## fmt: format all Go source files (gofmt + goimports)
 fmt:
 	gofmt -l -w .
+	goimports -l -w .
 
 ## lint: run vet and check formatting
 lint: vet
@@ -32,4 +33,4 @@ clean:
 
 ## help: list all available targets
 help:
-	@grep -E '^## ' $(MAKEFILE_LIST) | sed 's/^## //'
+	@grep -E '^## [a-z]' $(MAKEFILE_LIST) | awk -F': ' '{printf "  %-10s %s\n", substr($$1,5), $$2}'
