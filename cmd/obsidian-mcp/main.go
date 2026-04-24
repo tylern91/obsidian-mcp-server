@@ -25,11 +25,7 @@ func run(args []string) error {
 	}
 
 	// Structured logging to stderr — stdout carries JSON-RPC traffic.
-	level := slog.LevelInfo
-	if cfg.LogLevel == "debug" {
-		level = slog.LevelDebug
-	}
-	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
+	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: cfg.SlogLevel()}))
 	slog.SetDefault(logger)
 
 	slog.Info("starting obsidian-mcp server",

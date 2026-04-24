@@ -3,6 +3,7 @@ package config
 import (
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -134,6 +135,20 @@ func Load(args []string) (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// SlogLevel returns the slog.Level corresponding to the configured log level.
+func (c *Config) SlogLevel() slog.Level {
+	switch c.LogLevel {
+	case "debug":
+		return slog.LevelDebug
+	case "info":
+		return slog.LevelInfo
+	case "error":
+		return slog.LevelError
+	default: // "warn" and any normalized fallback
+		return slog.LevelWarn
+	}
 }
 
 // splitTrimmed splits s on commas and trims whitespace from each element,
