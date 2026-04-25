@@ -13,7 +13,7 @@ A Go [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server for 
 ## MCP Tools
 
 | Tool | Description | Params |
-|------|-------------|--------|
+| --- | --- | --- |
 | `read_note` | Read a note's content and metadata | `path` (required), `prettyPrint` |
 | `write_note` | Create or update a note | `path`, `content` (required), `mode`: overwrite/append/prepend |
 | `list_directory` | List files and subdirectories | `path` (empty = vault root), `prettyPrint` |
@@ -70,15 +70,36 @@ obsidian-mcp --vault /path/to/your/vault
 
 Configuration follows **CLI flag > environment variable > default** precedence.
 
-| Flag | Env Var | Default | Description |
-|------|---------|---------|-------------|
-| `--vault` | `OBSIDIAN_VAULT_PATH` | *(required)* | Path to Obsidian vault directory |
-| `--extensions` | `OBSIDIAN_EXTENSIONS` | `.md,.markdown,.txt,.canvas` | Comma-separated allowed file extensions |
-| `--ignore` | `OBSIDIAN_IGNORE` | `.obsidian,.git,node_modules,.DS_Store,.trash` | Comma-separated ignore patterns |
-| `--pretty` | `OBSIDIAN_PRETTY` | `false` | Pretty-print JSON responses |
-| `--max-batch` | `OBSIDIAN_MAX_BATCH` | `10` | Max files per batch operation |
-| `--max-results` | `OBSIDIAN_MAX_RESULTS` | `20` | Max search results |
-| `--log-level` | `OBSIDIAN_LOG_LEVEL` | `warn` | Log level: debug, info, warn, error |
+| Flag | Env Var | Default | Valid values |
+| --- | --- | --- | --- |
+| `--vault` | `OBSIDIAN_VAULT_PATH` | *(required)* | Absolute or relative path to an existing directory. Validated at startup — non-existent paths or files (not dirs) cause an immediate error. Surrounding whitespace is trimmed. |
+| `--extensions` | `OBSIDIAN_EXTENSIONS` | `.md,.markdown,.txt,.canvas` | Comma-separated list. Each entry should start with `.` (e.g. `.md`). Whitespace around entries is trimmed; empty entries are discarded. Only files matching one of these extensions are visible to MCP tools. |
+| `--ignore` | `OBSIDIAN_IGNORE` | `.obsidian,.git,node_modules,.DS_Store,.trash` | Comma-separated list of file/directory names to skip during traversal. Match is by name (not glob). Whitespace trimmed; empties discarded. |
+| `--pretty` | `OBSIDIAN_PRETTY` | `false` | CLI: bare `--pretty` enables it. Env var: any value accepted by Go's `strconv.ParseBool` — `1`, `t`, `T`, `true`, `TRUE`, `True`, `0`, `f`, `F`, `false`, `FALSE`, `False`. Anything else causes a startup error. |
+| `--max-batch` | `OBSIDIAN_MAX_BATCH` | `10` | Integer ≥ `1`. Non-integer or `<1` causes a startup error. Caps the number of files processed in a single batch tool call (Phase 4). **High values increase memory usage and token count per response** — very large batches can overflow an AI client's context window and slow down individual tool calls. Keep at or near the default unless your vault files are small. |
+| `--max-results` | `OBSIDIAN_MAX_RESULTS` | `20` | Integer ≥ `1`. Non-integer or `<1` causes a startup error. Caps the number of search results returned (Phase 3). **High values increase response token count** — returning hundreds of results per search can exhaust the AI client's context window with low-relevance entries. Increase only when precision-recall trade-offs require broader result sets. |
+| `--log-level` | `OBSIDIAN_LOG_LEVEL` | `warn` | One of: `debug`, `info`, `warn`, `error` (lowercase, case-sensitive). Unknown values silently fall back to `warn` — no error, no warning logged. |
+
+### Examples
+
+```bash
+# Override extensions to include Excalidraw drawings
+obsidian-mcp --vault ./my-vault --extensions ".md,.canvas,.excalidraw"
+
+# Add a custom ignore pattern alongside defaults (you must repeat the defaults
+# you want to keep — values fully replace, not merge)
+obsidian-mcp --vault ./my-vault \
+  --ignore ".obsidian,.git,node_modules,.DS_Store,.trash,Archive,Templates"
+
+# Enable pretty JSON via env var (any ParseBool-compatible truthy value works)
+OBSIDIAN_PRETTY=1 obsidian-mcp --vault ./my-vault
+OBSIDIAN_PRETTY=true obsidian-mcp --vault ./my-vault
+
+# Verbose logging while debugging an integration
+OBSIDIAN_LOG_LEVEL=debug obsidian-mcp --vault ./my-vault
+```
+
+**Precedence in action**: with `OBSIDIAN_LOG_LEVEL=debug` exported, `obsidian-mcp --vault ... --log-level info` runs at `info` — the explicit flag wins. Unset flags inherit the env var; if neither is set, the default applies.
 
 ## Security
 
@@ -91,7 +112,7 @@ All paths are validated through a 4-layer security model before any filesystem o
 
 ## Project Structure
 
-```
+```text
 cmd/obsidian-mcp/     Entry point, stdio transport
 internal/
   config/             CLI flags, env vars, defaults
