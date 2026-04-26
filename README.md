@@ -5,6 +5,10 @@ A Go [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server for 
 ## Features
 
 - **Read, write, and list** notes and directories via MCP tools
+- **Frontmatter** — parse and update YAML frontmatter with format-preserving rewrites
+- **Tags** — extract inline `#tags`, aggregate vault-wide tag counts, add/remove tags
+- **Backlinks** — on-demand reverse link graph (wikilinks and markdown links)
+- **Mutations** — heading-anchored patch, safe delete, and move with confirmation guards
 - **Path security** — 4-layer validation: lexical checks, ignore/extension filters, case-insensitive existence lookup, and symlink escape prevention
 - **Stdio transport** — works with any MCP client (Claude Code, Claude Desktop, etc.)
 - **Zero Obsidian dependency** — operates on the vault directory directly
@@ -17,6 +21,23 @@ A Go [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server for 
 | `read_note` | Read a note's content and metadata | `path` (required), `prettyPrint` |
 | `write_note` | Create or update a note | `path`, `content` (required), `mode`: overwrite/append/prepend |
 | `list_directory` | List files and subdirectories | `path` (empty = vault root), `prettyPrint` |
+| `get_frontmatter` | Read YAML frontmatter from a note | `path` (required), `prettyPrint` |
+| `update_frontmatter` | Set or remove frontmatter keys (format-preserving) | `path` (required), `updates` (JSON object), `removeKeys` (JSON array) |
+| `manage_tags` | Add or remove a tag on a note | `path`, `action`: add/remove (required), `tag` (required), `location`: frontmatter/inline |
+| `list_all_tags` | Aggregate all tags across the vault with counts | `prettyPrint` |
+| `get_backlinks` | Find all notes that link to a target note | `path` (required), `prettyPrint` |
+| `patch_note` | Apply a heading-anchored patch to a note | `path`, `heading`, `position`: before/after/replace_body, `content` (all required) |
+| `delete_note` | Permanently delete a note (requires confirm) | `path`, `confirm` (must match path exactly) |
+| `move_note` | Move or rename a note within the vault (requires confirm) | `src`, `dst`, `confirm` (must match src exactly) |
+
+### Notes
+
+**`patch_note` semantics**: `position` controls where `content` is inserted relative to the heading:
+- `before` — inserted immediately before the heading line
+- `after` — inserted after the heading's body (before the next same-level or higher heading)
+- `replace_body` — replaces everything between the heading line and the next same-level heading
+
+**Tag limitation (Phase 2)**: `#tags` inside fenced code blocks are counted as inline tags. Code-fence-aware tag parsing is deferred to Phase 3.
 
 ## Installation
 
@@ -116,12 +137,12 @@ All paths are validated through a 4-layer security model before any filesystem o
 cmd/obsidian-mcp/     Entry point, stdio transport
 internal/
   config/             CLI flags, env vars, defaults
-  vault/              Path security, CRUD operations
+  vault/              Path security, CRUD, frontmatter, tags, links, mutations
   tools/              MCP tool registrations and handlers
   response/           Token counting, JSON formatting
-  search/             BM25 ranked search (planned)
-  periodic/           Periodic note resolution (planned)
-  prompts/            MCP Prompt templates (planned)
+  search/             BM25 ranked search (Phase 3)
+  periodic/           Periodic note resolution (Phase 4)
+  prompts/            MCP Prompt templates (Phase 5)
 testdata/vault/       Fixture vault for tests
 ```
 
@@ -138,8 +159,8 @@ make help     # list all targets
 
 ## Roadmap
 
-- **Phase 2** — Frontmatter parsing, tag management, backlinks, patch/delete/move notes
-- **Phase 3** — BM25 full-text search, regex search
+- ~~**Phase 2** — Frontmatter parsing, tag management, backlinks, patch/delete/move notes~~ ✅ **Complete**
+- **Phase 3** — BM25 full-text search, regex search, code-fence-aware tag parsing
 - **Phase 4** — Batch operations, vault stats, periodic notes, recent changes
 - **Phase 5** — MCP Prompts, Resources, and release packaging
 
