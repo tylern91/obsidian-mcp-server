@@ -19,3 +19,17 @@ coverage.html
 .vscode/
 *.swp
 *.swo
+
+# Dev-workflow tooling (Serena AI, Claude Code) — not for public consumption
+.serena/
+.claude/
+
+# Secrets — never commit these
+.env
+.env.*
+.envrc
+*.key
+*.pem
+*.p12
+id_rsa*
+*.log
