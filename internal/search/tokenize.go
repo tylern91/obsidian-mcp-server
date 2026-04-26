@@ -22,15 +22,19 @@ func StripCodeFences(content string) string {
 
 	inFence := false
 	var fenceChar byte // '`' or '~'
+	var fenceLength int // run length of the opener
 
 	for i, line := range lines {
 		if i > 0 {
 			out.WriteByte('\n')
 		}
 
+		// Trim trailing \r so CRLF files close fences correctly.
+		trimmed := strings.TrimRight(line, "\r")
+
 		if inFence {
-			// Look for the closing fence: exactly the same fence character, 3+.
-			if isFenceCloser(line, fenceChar) {
+			// Look for the closing fence: same fence character, at least fenceLength chars.
+			if isFenceCloser(trimmed, fenceChar, fenceLength) {
 				inFence = false
 			}
 			// Replace the entire line (opening, body, closing) with a space.
@@ -39,9 +43,10 @@ func StripCodeFences(content string) string {
 		}
 
 		// Check for opening fence at column 0.
-		if ch, ok := fenceOpener(line); ok {
+		if ch, n, ok := fenceOpener(trimmed); ok {
 			inFence = true
 			fenceChar = ch
+			fenceLength = n
 			out.WriteByte(' ')
 			continue
 		}
@@ -54,33 +59,37 @@ func StripCodeFences(content string) string {
 }
 
 // fenceOpener reports whether line starts a fenced code block.
-// It returns the fence character ('`' or '~') and true on match.
+// It returns the fence character ('`' or '~'), the run length, and true on match.
 // The fence must be at column 0 and consist of 3 or more identical characters.
-func fenceOpener(line string) (byte, bool) {
+func fenceOpener(line string) (byte, int, bool) {
 	for _, ch := range []byte{'`', '~'} {
 		if len(line) >= 3 && line[0] == ch && line[1] == ch && line[2] == ch {
-			// Remaining characters (after 3) must all be the same fence char or
-			// form a language identifier — CommonMark: info string follows the
-			// fence opener. We accept any opener that starts with 3+ fence chars
-			// followed by anything except the fence char itself (for backtick fences).
-			// For simplicity: require that the first 3 chars match; accept the rest.
-			return ch, true
+			// Count the full run of the fence character.
+			n := 3
+			for n < len(line) && line[n] == ch {
+				n++
+			}
+			// Remaining characters (after the run) must not contain the fence char
+			// itself (CommonMark: backtick fences require no backtick in info string).
+			// For simplicity: we accept any opener that starts with 3+ fence chars.
+			return ch, n, true
 		}
 	}
-	return 0, false
+	return 0, 0, false
 }
 
-// isFenceCloser reports whether line closes an open fence started with fenceChar.
-// A closer is 3 or more fenceChar characters, optionally followed by spaces only.
-func isFenceCloser(line string, fenceChar byte) bool {
-	if len(line) < 3 {
+// isFenceCloser reports whether line closes an open fence started with fenceChar
+// and the original run length fenceLen. A closer requires at least fenceLen
+// consecutive fenceChar characters, optionally followed by spaces only.
+func isFenceCloser(line string, fenceChar byte, fenceLen int) bool {
+	if len(line) < fenceLen {
 		return false
 	}
 	i := 0
 	for i < len(line) && line[i] == fenceChar {
 		i++
 	}
-	if i < 3 {
+	if i < fenceLen {
 		return false
 	}
 	// Remainder must be empty or spaces only.
@@ -93,8 +102,7 @@ func isFenceCloser(line string, fenceChar byte) bool {
 }
 
 // stripInlineCode replaces single-backtick inline code spans with a space.
-// Double-backtick and other multi-backtick spans are left unchanged (rare in
-// Obsidian and would require more complex span matching).
+// Multi-backtick spans (`` `code` ``, etc.) are passed through unchanged.
 func stripInlineCode(line string) string {
 	if !strings.Contains(line, "`") {
 		return line
@@ -106,26 +114,32 @@ func stripInlineCode(line string) string {
 	i := 0
 	for i < len(line) {
 		if line[i] == '`' {
-			// Single backtick only (not `` or ```).
-			if i+1 < len(line) && line[i+1] == '`' {
-				// Multi-backtick: pass through as-is until the matching closer.
-				out.WriteByte(line[i])
+			// Count the run of consecutive backticks at position i.
+			runStart := i
+			for i < len(line) && line[i] == '`' {
 				i++
+			}
+			runLen := i - runStart
+
+			if runLen > 1 {
+				// Multi-backtick run: pass through as-is (no span matching).
+				out.WriteString(line[runStart:i])
 				continue
 			}
-			// Find closing single backtick.
-			j := i + 1
+
+			// runLen == 1: attempt to find the closing single backtick.
+			j := i
 			for j < len(line) && line[j] != '`' {
 				j++
 			}
 			if j < len(line) {
-				// Span found: replace with a space.
+				// Span found: replace entire span with a single space.
 				out.WriteByte(' ')
 				i = j + 1
 			} else {
 				// No closing backtick: pass the opening backtick through.
-				out.WriteByte(line[i])
-				i++
+				out.WriteByte('`')
+				// i is already past the backtick
 			}
 			continue
 		}

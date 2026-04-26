@@ -1,11 +1,16 @@
 package search
 
 import (
-	"reflect"
+	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestStripCodeFences(t *testing.T) {
+	// Direct assertion for empty string (table guard skips wantExact == "").
+	require.Empty(t, StripCodeFences(""))
+
 	tests := []struct {
 		name  string
 		input string
@@ -16,66 +21,78 @@ func TestStripCodeFences(t *testing.T) {
 		wantExact        string // exact match when non-empty
 	}{
 		{
-			name: "no fences passthrough",
-			input: "Hello world\nThis is plain text.",
+			name:      "no fences passthrough",
+			input:     "Hello world\nThis is plain text.",
 			wantExact: "Hello world\nThis is plain text.",
 		},
 		{
-			name: "triple-backtick block removed",
-			input: "Before\n```go\nfunc main() {}\n```\nAfter",
+			name:             "triple-backtick block removed",
+			input:            "Before\n```go\nfunc main() {}\n```\nAfter",
 			wantSubstring:    "Before",
 			wantNotSubstring: "func main",
 		},
 		{
-			name: "triple-tilde block removed",
-			input: "Start\n~~~python\nprint('hello')\n~~~\nEnd",
+			name:             "triple-tilde block removed",
+			input:            "Start\n~~~python\nprint('hello')\n~~~\nEnd",
 			wantSubstring:    "Start",
 			wantNotSubstring: "print('hello')",
 		},
 		{
-			name: "inline backtick removed",
-			input: "Use `os.Exit(1)` to quit.",
+			name:             "inline backtick removed",
+			input:            "Use `os.Exit(1)` to quit.",
 			wantSubstring:    "Use",
 			wantNotSubstring: "os.Exit",
 		},
 		{
-			name: "inline backtick replaced with space keeps surrounding text",
-			input: "Call `foo()` now.",
+			name:      "inline backtick replaced with space keeps surrounding text",
+			input:     "Call `foo()` now.",
 			wantExact: "Call   now.",
 		},
 		{
-			name: "backtick inside tilde fence not treated as inline code",
-			input: "Text\n~~~\nsome `code` here\n~~~\nMore",
+			name:             "backtick inside tilde fence not treated as inline code",
+			input:            "Text\n~~~\nsome `code` here\n~~~\nMore",
 			wantSubstring:    "Text",
 			wantNotSubstring: "some `code` here",
 		},
 		{
-			name: "multiple inline backtick spans",
-			input: "Use `a` and `b` together.",
+			name:             "multiple inline backtick spans",
+			input:            "Use `a` and `b` together.",
 			wantSubstring:    "Use",
 			wantNotSubstring: "a` and `b",
 		},
 		{
-			name: "empty string",
-			input: "",
-			wantExact: "",
-		},
-		{
-			name: "fence with language tag",
-			input: "```typescript\nconst x = 1;\n```",
+			name:             "fence with language tag",
+			input:            "```typescript\nconst x = 1;\n```",
 			wantNotSubstring: "const x",
 		},
 		{
-			name: "unclosed fence treats rest of document as code",
-			input: "Before\n```\nunclosed code",
+			name:             "unclosed fence treats rest of document as code",
+			input:            "Before\n```\nunclosed code",
 			wantSubstring:    "Before",
 			wantNotSubstring: "unclosed code",
 		},
 		{
-			name: "adjacent fences",
-			input: "```\nblock1\n```\nMiddle\n```\nblock2\n```",
+			name:             "adjacent fences",
+			input:            "```\nblock1\n```\nMiddle\n```\nblock2\n```",
 			wantSubstring:    "Middle",
 			wantNotSubstring: "block1",
+		},
+		{
+			name:      "double-backtick inline span preserved",
+			input:     "Use ``df`` command.",
+			wantExact: "Use ``df`` command.",
+		},
+		{
+			name:             "CRLF fence closer recognised",
+			input:            "Before\r\n```\r\ncode here\r\n```\r\nAfter",
+			wantSubstring:    "Before",
+			wantNotSubstring: "code here",
+		},
+		{
+			name:      "longer opener requires longer closer",
+			input:     "````\nblock\n````",
+			wantSubstring:    " ",
+			wantNotSubstring: "block",
 		},
 	}
 
@@ -86,27 +103,14 @@ func TestStripCodeFences(t *testing.T) {
 			if tt.wantExact != "" && got != tt.wantExact {
 				t.Errorf("StripCodeFences(%q)\ngot:  %q\nwant: %q", tt.input, got, tt.wantExact)
 			}
-			if tt.wantSubstring != "" && !containsStr(got, tt.wantSubstring) {
+			if tt.wantSubstring != "" && !strings.Contains(got, tt.wantSubstring) {
 				t.Errorf("StripCodeFences(%q) = %q; want it to contain %q", tt.input, got, tt.wantSubstring)
 			}
-			if tt.wantNotSubstring != "" && containsStr(got, tt.wantNotSubstring) {
+			if tt.wantNotSubstring != "" && strings.Contains(got, tt.wantNotSubstring) {
 				t.Errorf("StripCodeFences(%q) = %q; want it NOT to contain %q", tt.input, got, tt.wantNotSubstring)
 			}
 		})
 	}
-}
-
-func containsStr(s, sub string) bool {
-	return len(sub) > 0 && len(s) >= len(sub) && (s == sub || len(s) > 0 && stringContains(s, sub))
-}
-
-func stringContains(s, sub string) bool {
-	for i := 0; i <= len(s)-len(sub); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
 }
 
 func TestTokenize(t *testing.T) {
@@ -170,8 +174,15 @@ func TestTokenize(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := Tokenize(tt.input)
-			if !reflect.DeepEqual(got, tt.want) {
+			if len(got) != len(tt.want) {
 				t.Errorf("Tokenize(%q)\ngot:  %v\nwant: %v", tt.input, got, tt.want)
+				return
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("Tokenize(%q)\ngot:  %v\nwant: %v", tt.input, got, tt.want)
+					break
+				}
 			}
 		})
 	}
