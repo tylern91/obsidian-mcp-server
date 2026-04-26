@@ -14,12 +14,22 @@ import (
 // The method is read-only and does not hold the service mutex.
 func (s *Service) WalkNotes(ctx context.Context, fn func(rel, abs string) error) error {
 	return filepath.WalkDir(s.root, func(path string, d fs.DirEntry, walkErr error) error {
+		if err := ctx.Err(); err != nil {
+			return err // cancels the walk; WalkDir propagates non-nil non-SkipDir errors
+		}
+
 		if walkErr != nil {
-			return nil // skip unreadable entries silently
+			// Propagate errors on the vault root itself (e.g., root does not exist);
+			// silently skip unreadable entries at any other path.
+			if path == s.root {
+				return walkErr
+			}
+			return nil
 		}
 
 		rel, relErr := filepath.Rel(s.root, path)
 		if relErr != nil {
+			// unreachable: both paths are absolute
 			return nil
 		}
 
