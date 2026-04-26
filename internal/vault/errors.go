@@ -7,13 +7,15 @@ import (
 
 // Sentinel errors for vault operations.
 var (
-	ErrPathTraversal   = errors.New("path traversal attempt")
-	ErrSymlinkEscape   = errors.New("symlink escapes vault boundary")
-	ErrNotFound        = errors.New("not found")
-	ErrConfirmMismatch = errors.New("confirmation path does not match")
-	ErrAlreadyExists   = errors.New("already exists")
-	ErrAmbiguousPath   = errors.New("ambiguous path: multiple case-insensitive matches")
-	ErrPathRestricted  = errors.New("path is restricted")
+	ErrPathTraversal      = errors.New("path traversal attempt")
+	ErrSymlinkEscape      = errors.New("symlink escapes vault boundary")
+	ErrNotFound           = errors.New("not found")
+	ErrConfirmMismatch    = errors.New("confirmation path does not match")
+	ErrAlreadyExists      = errors.New("already exists")
+	ErrAmbiguousPath      = errors.New("ambiguous path: multiple case-insensitive matches")
+	ErrPathRestricted     = errors.New("path is restricted")
+	ErrInvalidFrontmatter = errors.New("invalid frontmatter")
+	ErrHeadingNotFound    = errors.New("heading not found")
 )
 
 // PathError records an error and the path and operation that caused it.

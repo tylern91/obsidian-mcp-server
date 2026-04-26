@@ -13,6 +13,20 @@ type VaultService interface {
 	ReadNote(ctx context.Context, path string) (*vault.Note, error)
 	WriteNote(ctx context.Context, path, content string, mode vault.WriteMode) error
 	ListDirectory(ctx context.Context, path string) ([]vault.DirEntry, error)
+
+	GetFrontmatter(ctx context.Context, path string) (fm map[string]any, body string, err error)
+	UpdateFrontmatter(ctx context.Context, path string, updates map[string]any, removeKeys []string) error
+
+	ListTags(ctx context.Context, path string) ([]string, error)
+	AddTag(ctx context.Context, path, tag, location string) error
+	RemoveTag(ctx context.Context, path, tag string) error
+	AggregateTags(ctx context.Context) (map[string]int, error)
+
+	GetBacklinks(ctx context.Context, targetPath string) ([]vault.Backlink, error)
+
+	PatchNote(ctx context.Context, path string, p vault.PatchOp) error
+	DeleteNote(ctx context.Context, path, confirm string) error
+	MoveNote(ctx context.Context, src, dst, confirm string) error
 }
 
 // Deps holds the dependencies injected into all tool handlers.
@@ -21,9 +35,17 @@ type Deps struct {
 	PrettyPrint bool // global default for JSON formatting
 }
 
-// RegisterAll registers all Phase 1 tools with the MCP server.
+// RegisterAll registers all MCP tools with the server.
 func RegisterAll(s *server.MCPServer, deps Deps) {
 	registerReadNote(s, deps)
 	registerWriteNote(s, deps)
 	registerListDirectory(s, deps)
+	registerGetFrontmatter(s, deps)
+	registerUpdateFrontmatter(s, deps)
+	registerManageTags(s, deps)
+	registerListAllTags(s, deps)
+	registerGetBacklinks(s, deps)
+	registerPatchNote(s, deps)
+	registerDeleteNote(s, deps)
+	registerMoveNote(s, deps)
 }
