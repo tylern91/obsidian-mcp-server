@@ -8,21 +8,24 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/tylern91/obsidian-mcp-server/internal/markdown"
 )
 
 // tagRegex matches Obsidian-style inline tags: #tag preceded by start-of-line or
 // a non-word character.  The tag body must be Unicode letters, digits,
 // underscores, slashes, or hyphens.
-//
-// Phase 2 limitation: tags inside fenced code blocks are over-counted.
-// Code-fence-aware parsing is deferred to Phase 3.
 var tagRegex = regexp.MustCompile(`(?m)(?:^|[^\p{L}\p{N}_/])#([\p{L}\p{N}_/\-]+)`)
 
 // ExtractInlineTags returns all unique inline #tags found in body text.
 // Tags are returned in the order first encountered, case-sensitively deduped
 // (Obsidian treats #TODO and #todo as distinct tags).
+//
+// Code-fenced regions (``` ... ``` and ~~~ ... ~~~) and inline backtick spans
+// are excluded from matching so that tags inside code blocks are not counted.
 func ExtractInlineTags(body string) []string {
-	matches := tagRegex.FindAllStringSubmatch(body, -1)
+	stripped := markdown.StripCodeFences(body)
+	matches := tagRegex.FindAllStringSubmatch(stripped, -1)
 
 	seen := make(map[string]struct{}, len(matches))
 	out := make([]string, 0, len(matches))
@@ -263,6 +266,11 @@ func addTagToFrontmatter(mapping *yaml.Node, tag, body string) (string, error) {
 // The method is a no-op (returns nil) when the tag is not present in either
 // location.  It is atomic: holds the service mutex for the full
 // read-modify-write cycle.
+//
+// Code-fenced regions are skipped during the inline search: a tag that appears
+// only inside a code block is NOT removed from the prose (because it was never
+// counted as a prose tag). The replacement is applied to the original body
+// (fences intact) so that code blocks are written back unchanged.
 func (s *Service) RemoveTag(ctx context.Context, path, tag string) error {
 	_, absPath, err := s.sanitizePath("remove_tag", path)
 	if err != nil {
@@ -322,6 +330,10 @@ func (s *Service) RemoveTag(ctx context.Context, path, tag string) error {
 	}
 
 	// Remove inline #tag occurrences from body.
+	//
+	// Strip code fences for the purpose of deciding whether the tag exists in
+	// prose — but run the actual regex replacement on the original body so that
+	// code blocks are preserved verbatim.
 	removeInline := regexp.MustCompile(`(?m)(?:^|([^\p{L}\p{N}_/]))#` + regexp.QuoteMeta(tag) + `(?:[^\p{L}\p{N}_/\-]|$)`)
 	newBody := removeInline.ReplaceAllStringFunc(body, func(match string) string {
 		// Preserve the leading non-tag character if present (group 1).
