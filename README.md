@@ -20,19 +20,38 @@ A Go [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server for 
 
 ## Installation
 
-Requires Go 1.23+.
+Requires Go 1.23+. **This is a private repository** — you need a GitHub account with read access and an SSH key registered with GitHub ([setup guide](https://docs.github.com/en/authentication/connecting-to-github-with-ssh)).
+
+### One-time setup
+
+Tell Go to bypass the public module proxy for this module, and rewrite just this repo's HTTPS URL to SSH so your key is used:
+
+```bash
+go env -w GOPRIVATE=github.com/tylern91/obsidian-mcp-server
+git config --global \
+  url."git@github.com:tylern91/obsidian-mcp-server".insteadOf \
+  "https://github.com/tylern91/obsidian-mcp-server"
+```
+
+The `insteadOf` rewrite is scoped to this repo's URL prefix only — other `github.com` clones over HTTPS are unaffected. It must live in `--global` git config (not a local repo config) because `go install` clones into the module cache outside any working tree.
+
+### Install via `go install`
 
 ```bash
 go install github.com/tylern91/obsidian-mcp-server/cmd/obsidian-mcp@latest
 ```
 
-Or build from source:
+The binary lands at `$(go env GOBIN)` or `$(go env GOPATH)/bin` (typically `~/go/bin/obsidian-mcp`). Make sure that directory is on your `PATH`.
+
+### Or build from source
 
 ```bash
-git clone https://github.com/tylern91/obsidian-mcp-server.git
+git clone git@github.com:tylern91/obsidian-mcp-server.git
 cd obsidian-mcp-server
 make build
 ```
+
+Produces `./obsidian-mcp` in the repo root. This path uses SSH directly, so it needs neither `GOPRIVATE` nor the `insteadOf` rewrite.
 
 ## Usage
 
