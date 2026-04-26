@@ -3,7 +3,6 @@ package vault
 import (
 	"bufio"
 	"context"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -93,41 +92,12 @@ func (s *Service) GetBacklinks(ctx context.Context, targetPath string) ([]Backli
 
 	var results []Backlink
 
-	err = filepath.WalkDir(s.root, func(path string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
+	err = s.WalkNotes(ctx, func(rel, abs string) error {
+		if filepath.Clean(abs) == filepath.Clean(absTarget) {
 			return nil
 		}
 
-		if d.IsDir() {
-			rel, relErr := filepath.Rel(s.root, path)
-			if relErr != nil {
-				return nil
-			}
-			if rel != "." && s.filter != nil && s.filter.IsIgnored(rel) {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
-		rel, relErr := filepath.Rel(s.root, path)
-		if relErr != nil {
-			return nil
-		}
-
-		if s.filter != nil {
-			if s.filter.IsIgnored(rel) {
-				return nil
-			}
-			if !s.filter.IsAllowedExtension(filepath.Ext(path)) {
-				return nil
-			}
-		}
-
-		if filepath.Clean(path) == filepath.Clean(absTarget) {
-			return nil
-		}
-
-		f, openErr := os.Open(path)
+		f, openErr := os.Open(abs)
 		if openErr != nil {
 			return nil
 		}
@@ -153,7 +123,7 @@ func (s *Service) GetBacklinks(ctx context.Context, targetPath string) ([]Backli
 				ltNoExt := strings.TrimSuffix(ltSlash, filepath.Ext(ltSlash))
 				if matchTargets[ltSlash] || matchTargets[ltNoExt] {
 					results = append(results, Backlink{
-						Path:    filepath.ToSlash(rel),
+						Path:    rel,
 						Line:    lineNum,
 						Snippet: strings.TrimSpace(line),
 					})

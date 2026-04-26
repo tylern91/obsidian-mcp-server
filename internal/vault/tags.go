@@ -3,9 +3,7 @@ package vault
 import (
 	"context"
 	"fmt"
-	"io/fs"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -360,41 +358,10 @@ func (s *Service) RemoveTag(ctx context.Context, path, tag string) error {
 func (s *Service) AggregateTags(ctx context.Context) (map[string]int, error) {
 	counts := make(map[string]int)
 
-	err := filepath.WalkDir(s.root, func(path string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return nil // skip unreadable entries
-		}
-
-		// Skip ignored directory trees early.
-		if d.IsDir() {
-			rel, relErr := filepath.Rel(s.root, path)
-			if relErr != nil {
-				return nil
-			}
-			if rel != "." && s.filter != nil && s.filter.IsIgnored(rel) {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
-		// Filter by extension.
-		rel, relErr := filepath.Rel(s.root, path)
-		if relErr != nil {
-			return nil
-		}
-
-		if s.filter != nil {
-			if s.filter.IsIgnored(rel) {
-				return nil
-			}
-			if !s.filter.IsAllowedExtension(filepath.Ext(path)) {
-				return nil
-			}
-		}
-
-		data, readErr := os.ReadFile(path)
+	err := s.WalkNotes(ctx, func(rel, abs string) error {
+		data, readErr := os.ReadFile(abs)
 		if readErr != nil {
-			return nil
+			return nil // skip unreadable files silently
 		}
 
 		content := string(data)
