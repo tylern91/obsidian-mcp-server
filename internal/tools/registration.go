@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/tylern91/obsidian-mcp-server/internal/search"
 	"github.com/tylern91/obsidian-mcp-server/internal/vault"
 )
 
@@ -29,9 +30,17 @@ type VaultService interface {
 	MoveNote(ctx context.Context, src, dst, confirm string) error
 }
 
+// SearchService defines the search operations that tool handlers depend on.
+// Satisfied by *search.Service; enables mock-based unit testing.
+type SearchService interface {
+	SearchBM25(ctx context.Context, opts search.BM25Options) ([]search.BM25Result, error)
+	SearchRegex(ctx context.Context, opts search.RegexOptions) ([]search.RegexResult, error)
+}
+
 // Deps holds the dependencies injected into all tool handlers.
 type Deps struct {
 	Vault       VaultService
+	Search      SearchService
 	PrettyPrint bool // global default for JSON formatting
 }
 
@@ -48,4 +57,6 @@ func RegisterAll(s *server.MCPServer, deps Deps) {
 	registerPatchNote(s, deps)
 	registerDeleteNote(s, deps)
 	registerMoveNote(s, deps)
+	registerSearchNotes(s, deps)
+	registerSearchRegex(s, deps)
 }
