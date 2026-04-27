@@ -67,7 +67,7 @@ func auditNotesHandler(deps Deps) server.ToolHandlerFunc {
 		// ── Single-pass walk ────────────────────────────────────────────────────
 		type auditData struct {
 			allPaths    map[string]bool     // vault-relative paths that exist
-			allStems    map[string]bool     // lowercase stems of paths (for link resolution)
+			stemToPath  map[string]string   // lowercase stem → vault-relative path (for link resolution)
 			tagsByPath  map[string][]string // path → combined tags
 			linksByPath map[string][]string // path → link targets (as extracted)
 			notesByStem map[string][]string // filename stem → []paths
@@ -75,7 +75,7 @@ func auditNotesHandler(deps Deps) server.ToolHandlerFunc {
 
 		ad := auditData{
 			allPaths:    make(map[string]bool),
-			allStems:    make(map[string]bool),
+			stemToPath:  make(map[string]string),
 			tagsByPath:  make(map[string][]string),
 			linksByPath: make(map[string][]string),
 			notesByStem: make(map[string][]string),
@@ -84,11 +84,12 @@ func auditNotesHandler(deps Deps) server.ToolHandlerFunc {
 		walkErr := deps.Vault.WalkNotes(ctx, func(rel, abs string) error {
 			ad.allPaths[rel] = true
 
-			// Track stems for link resolution (case-insensitive, no extension).
+			// Build stem→path map for link resolution (case-insensitive, no extension).
 			base := filepath.Base(rel)
 			ext := filepath.Ext(base)
 			stem := strings.ToLower(strings.TrimSuffix(base, ext))
-			ad.allStems[stem] = true
+			// Last writer wins for duplicate stems; sufficient for orphan detection.
+			ad.stemToPath[stem] = rel
 
 			// notesByStem uses the case-sensitive base name stem as key
 			// (Obsidian wikilinks are case-insensitive, but stems for duplicate detection
@@ -134,11 +135,12 @@ func auditNotesHandler(deps Deps) server.ToolHandlerFunc {
 		}
 
 		// ── Build incoming-links index ──────────────────────────────────────────
-		// incomingCount[path] = number of OTHER notes that link to this path
+		// incomingCount[path] = number of OTHER notes that link to this path.
+		// Resolution uses stemToPath so stem-matched wikilinks map to actual paths.
 		incomingCount := make(map[string]int, len(ad.allPaths))
 		for src, targets := range ad.linksByPath {
 			for _, target := range targets {
-				resolved := resolveAuditLink(target, ad.allPaths, ad.allStems)
+				resolved := resolveAuditLink(target, ad.allPaths, ad.stemToPath)
 				if resolved != "" && resolved != src {
 					incomingCount[resolved]++
 				}
@@ -146,6 +148,16 @@ func auditNotesHandler(deps Deps) server.ToolHandlerFunc {
 		}
 
 		// ── Compute results for each requested class ────────────────────────────
+		// capEntries collects up to limit+1 entries from a full slice, then
+		// returns (trimmed slice, truncated). Collecting one extra lets us detect
+		// whether there were MORE results beyond the limit without under-reporting.
+		capEntries := func(all []auditEntry) ([]auditEntry, bool) {
+			if len(all) > limit {
+				return all[:limit], true
+			}
+			return all, false
+		}
+
 		truncated := false
 
 		type resultMap = map[string][]auditEntry
@@ -153,56 +165,66 @@ func auditNotesHandler(deps Deps) server.ToolHandlerFunc {
 		results := make(resultMap)
 
 		if wantClass["orphans"] {
-			var entries []auditEntry
+			var all []auditEntry
 			for path := range ad.allPaths {
 				hasTags := len(ad.tagsByPath[path]) > 0
 				hasIncoming := incomingCount[path] > 0
 				if !hasTags && !hasIncoming {
-					entries = append(entries, auditEntry{Path: path, Detail: "no tags and no incoming links"})
+					all = append(all, auditEntry{Path: path, Detail: "no tags and no incoming links"})
+					if len(all) > limit {
+						// Collected one beyond limit — we know there are more; stop early.
+						break
+					}
 				}
-				if len(entries) >= limit {
-					truncated = true
-					break
-				}
+			}
+			entries, trunc := capEntries(all)
+			if trunc {
+				truncated = true
 			}
 			results["orphans"] = entries
 		}
 
 		if wantClass["dangling-links"] {
-			var entries []auditEntry
+			var all []auditEntry
 		outerDangling:
 			for src, targets := range ad.linksByPath {
 				for _, target := range targets {
-					resolved := resolveAuditLink(target, ad.allPaths, ad.allStems)
+					resolved := resolveAuditLink(target, ad.allPaths, ad.stemToPath)
 					if resolved == "" {
 						// Dangling.
-						entries = append(entries, auditEntry{Path: src, Detail: "links to " + target})
-						if len(entries) >= limit {
-							truncated = true
+						all = append(all, auditEntry{Path: src, Detail: "links to " + target})
+						if len(all) > limit {
 							break outerDangling
 						}
 					}
 				}
 			}
+			entries, trunc := capEntries(all)
+			if trunc {
+				truncated = true
+			}
 			results["dangling-links"] = entries
 		}
 
 		if wantClass["untagged"] {
-			var entries []auditEntry
+			var all []auditEntry
 			for path := range ad.allPaths {
 				if len(ad.tagsByPath[path]) == 0 {
-					entries = append(entries, auditEntry{Path: path})
+					all = append(all, auditEntry{Path: path})
+					if len(all) > limit {
+						break
+					}
 				}
-				if len(entries) >= limit {
-					truncated = true
-					break
-				}
+			}
+			entries, trunc := capEntries(all)
+			if trunc {
+				truncated = true
 			}
 			results["untagged"] = entries
 		}
 
 		if wantClass["duplicate-titles"] {
-			var entries []auditEntry
+			var all []auditEntry
 		outerDup:
 			for stem, paths := range ad.notesByStem {
 				if len(paths) < 2 {
@@ -217,12 +239,15 @@ func auditNotesHandler(deps Deps) server.ToolHandlerFunc {
 						}
 					}
 					detail := "shares stem '" + stem + "' with: " + strings.Join(others, ", ")
-					entries = append(entries, auditEntry{Path: p, Detail: detail})
-					if len(entries) >= limit {
-						truncated = true
+					all = append(all, auditEntry{Path: p, Detail: detail})
+					if len(all) > limit {
 						break outerDup
 					}
 				}
+			}
+			entries, trunc := capEntries(all)
+			if trunc {
+				truncated = true
 			}
 			results["duplicate-titles"] = entries
 		}
@@ -252,8 +277,8 @@ func auditNotesHandler(deps Deps) server.ToolHandlerFunc {
 // Resolution strategy:
 //  1. Exact match: target is already a vault-relative path in allPaths.
 //  2. With ".md" extension: target + ".md" is in allPaths.
-//  3. Stem match: the lowercase stem of target matches a known note stem.
-func resolveAuditLink(target string, allPaths map[string]bool, allStems map[string]bool) string {
+//  3. Stem match: the lowercase stem of target matches a known note stem via stemToPath.
+func resolveAuditLink(target string, allPaths map[string]bool, stemToPath map[string]string) string {
 	// Clean target.
 	target = strings.TrimSpace(target)
 	if target == "" {
@@ -277,9 +302,9 @@ func resolveAuditLink(target string, allPaths map[string]bool, allStems map[stri
 	ext := filepath.Ext(base)
 	stem := strings.ToLower(strings.TrimSuffix(base, ext))
 
-	if allStems[stem] {
-		// Found by stem — return non-empty to indicate it resolves.
-		return stem // non-empty sentinel
+	if path, ok := stemToPath[stem]; ok {
+		// Return the actual vault-relative path so incomingCount is keyed correctly.
+		return path
 	}
 
 	return ""
