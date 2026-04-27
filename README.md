@@ -238,13 +238,6 @@ make run ARGS="--vault /path/to/vault"
 make help     # list all targets
 ```
 
-## Roadmap
-
-- ~~**Phase 2** — Frontmatter parsing, tag management, backlinks, patch/delete/move notes~~ ✅ **Complete**
-- ~~**Phase 3** — BM25 full-text search, regex/glob search~~ ✅ **Complete**
-- ~~**Phase 4** — Batch operations, vault stats, periodic notes, recent changes~~ ✅ **Complete**
-- ~~**Phase 5** — MCP Prompts, Resources, and release packaging~~ ✅ **Complete**
-
 ## License
 
 [GPL-3.0](LICENSE)
