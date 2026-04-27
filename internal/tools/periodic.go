@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"strconv"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -21,13 +20,12 @@ func registerGetPeriodicNote(s *server.MCPServer, deps Deps) {
 			mcp.Description("Periodic note type"),
 			mcp.Enum("daily", "weekly", "monthly", "quarterly", "yearly"),
 		),
-		mcp.WithString("offset",
+		mcp.WithNumber("offset",
 			mcp.Description("Offset from current period: 0=current, -1=previous, +1=next (default: 0)"),
-			mcp.DefaultString("0"),
+			mcp.DefaultNumber(0),
 		),
-		mcp.WithString("createIfMissing",
+		mcp.WithBoolean("createIfMissing",
 			mcp.Description("Create the note if it does not exist (default: false)"),
-			mcp.DefaultString("false"),
 		),
 		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(false),
@@ -42,14 +40,8 @@ func getPeriodicNoteHandler(deps Deps) server.ToolHandlerFunc {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		offsetStr := req.GetString("offset", "0")
-		offset := 0
-		if n, parseErr := strconv.Atoi(offsetStr); parseErr == nil {
-			offset = n
-		}
-
-		createStr := req.GetString("createIfMissing", "false")
-		createIfMissing := createStr == "true"
+		offset := req.GetInt("offset", 0)
+		createIfMissing := req.GetBool("createIfMissing", false)
 
 		resolvedPath, err := deps.Periodic.Resolve(granularity, offset)
 		if err != nil {
@@ -113,13 +105,12 @@ func registerGetRecentPeriodicNotes(s *server.MCPServer, deps Deps) {
 			mcp.Description("Periodic note type"),
 			mcp.Enum("daily", "weekly", "monthly", "quarterly", "yearly"),
 		),
-		mcp.WithString("count",
+		mcp.WithNumber("count",
 			mcp.Description("Number of recent notes to return (default: 5)"),
-			mcp.DefaultString("5"),
+			mcp.DefaultNumber(5),
 		),
-		mcp.WithString("summary",
+		mcp.WithBoolean("summary",
 			mcp.Description("When true, return headOf (200 chars) instead of full content (default: true)"),
-			mcp.DefaultString("true"),
 		),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
@@ -134,10 +125,9 @@ func getRecentPeriodicNotesHandler(deps Deps) server.ToolHandlerFunc {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		countStr := req.GetString("count", "5")
-		count := defaultPeriodicCount
-		if n, parseErr := strconv.Atoi(countStr); parseErr == nil && n > 0 {
-			count = n
+		count := req.GetInt("count", defaultPeriodicCount)
+		if count <= 0 {
+			count = defaultPeriodicCount
 		}
 
 		maxResults := deps.MaxResults
@@ -148,8 +138,8 @@ func getRecentPeriodicNotesHandler(deps Deps) server.ToolHandlerFunc {
 			count = maxResults
 		}
 
-		summaryStr := req.GetString("summary", "true")
-		summary := summaryStr != "false"
+		// summary defaults to true when not provided
+		summary := req.GetBool("summary", true)
 
 		dates, err := deps.Periodic.RecentDates(granularity, count)
 		if err != nil {
@@ -171,6 +161,7 @@ func getRecentPeriodicNotesHandler(deps Deps) server.ToolHandlerFunc {
 		for i, d := range dates {
 			dateStr := d.Format("2006-01-02")
 
+			// Resolve path for offset -i (i=0 is current, i=1 is previous, etc.)
 			resolvedPath, resolveErr := deps.Periodic.Resolve(granularity, -i)
 			if resolveErr != nil {
 				return mcp.NewToolResultError("resolve: "+resolveErr.Error()), nil

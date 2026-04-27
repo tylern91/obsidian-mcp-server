@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"sort"
-	"strconv"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -17,16 +16,15 @@ const defaultRecentLimit = 10
 func registerGetRecentChanges(s *server.MCPServer, deps Deps) {
 	tool := mcp.NewTool("get_recent_changes",
 		mcp.WithDescription("List notes most recently modified in the vault"),
-		mcp.WithString("limit",
+		mcp.WithNumber("limit",
 			mcp.Description("Maximum number of notes to return (default: 10)"),
-			mcp.DefaultString("10"),
+			mcp.DefaultNumber(10),
 		),
 		mcp.WithString("since",
 			mcp.Description("Only include notes modified on or after this date (ISO-8601, e.g. \"2024-01-01\")"),
 		),
-		mcp.WithString("summary",
+		mcp.WithBoolean("summary",
 			mcp.Description("When false, include the first 200 characters of each note (default: true)"),
-			mcp.DefaultString("true"),
 		),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
@@ -37,10 +35,9 @@ func registerGetRecentChanges(s *server.MCPServer, deps Deps) {
 func recentChangesHandler(deps Deps) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		// Parse limit.
-		limitStr := req.GetString("limit", "10")
-		limit := defaultRecentLimit
-		if n, err := strconv.Atoi(limitStr); err == nil && n > 0 {
-			limit = n
+		limit := req.GetInt("limit", defaultRecentLimit)
+		if limit <= 0 {
+			limit = defaultRecentLimit
 		}
 		maxResults := deps.MaxResults
 		if maxResults <= 0 {
@@ -61,9 +58,8 @@ func recentChangesHandler(deps Deps) server.ToolHandlerFunc {
 			}
 		}
 
-		// Parse summary flag (string "true"/"false", default true).
-		summaryStr := req.GetString("summary", "true")
-		summary := summaryStr != "false"
+		// Parse summary flag (default true).
+		summary := req.GetBool("summary", true)
 
 		// Collect all entries via WalkNotes.
 		type entry struct {

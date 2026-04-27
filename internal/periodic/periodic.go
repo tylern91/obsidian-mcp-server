@@ -31,8 +31,9 @@ var defaultConfig = Config{
 
 // Service resolves periodic note paths.
 type Service struct {
-	vaultRoot string
-	clock     func() time.Time
+	vaultRoot   string
+	clock       func() time.Time
+	configCache *Config // nil = not yet loaded
 }
 
 // New creates a Service using time.Now as the clock.
@@ -53,16 +54,27 @@ func (s *Service) WithClock(fn func() time.Time) *Service {
 
 // LoadConfig reads .obsidian/plugins/periodic-notes/data.json.
 // If the file is missing, returns built-in defaults (daily enabled, YYYY-MM-DD, "Daily Notes").
+// Results are cached on the Service after the first successful load.
 func (s *Service) LoadConfig() (Config, error) {
+	if s.configCache != nil {
+		// Return a shallow copy so callers cannot mutate the cache.
+		out := make(Config, len(*s.configCache))
+		for k, v := range *s.configCache {
+			out[k] = v
+		}
+		return out, nil
+	}
+
 	configPath := filepath.Join(s.vaultRoot, ".obsidian", "plugins", "periodic-notes", "data.json")
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			// Return a copy of the defaults
+			// Return a copy of the defaults and cache them.
 			out := make(Config, len(defaultConfig))
 			for k, v := range defaultConfig {
 				out[k] = v
 			}
+			s.configCache = &out
 			return out, nil
 		}
 		return nil, fmt.Errorf("periodic: read config: %w", err)
@@ -72,7 +84,13 @@ func (s *Service) LoadConfig() (Config, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("periodic: parse config: %w", err)
 	}
-	return cfg, nil
+	s.configCache = &cfg
+	// Return a copy so callers cannot mutate the cache.
+	out := make(Config, len(cfg))
+	for k, v := range cfg {
+		out[k] = v
+	}
+	return out, nil
 }
 
 // formatMoment converts a moment.js format string and a time.Time into the
