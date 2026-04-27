@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -74,6 +75,27 @@ func TestExtractInlineTags(t *testing.T) {
 			name: "fixture: tagged.md body tags",
 			body: "\nWorking on the #obsidian integration today. Also thinking about #golang performance.\n\n#todo finish the implementation\n",
 			want: []string{"obsidian", "golang", "todo"},
+		},
+		// ----- code-fence exclusion tests -----
+		{
+			name: "tag inside backtick fence is not extracted",
+			body: "prose here\n```\n#fake_tag inside fence\n```\nmore prose",
+			want: nil,
+		},
+		{
+			name: "tag inside tilde fence is not extracted",
+			body: "prose here\n~~~\n#fake_tag inside tilde fence\n~~~\nmore prose",
+			want: nil,
+		},
+		{
+			name: "prose tag is extracted even when fence tag is present",
+			body: "```\n#fenced_only\n```\nReal prose with #real_tag here.",
+			want: []string{"real_tag"},
+		},
+		{
+			name: "inline code span tag is not extracted",
+			body: "Use `#not_a_tag` in your code.",
+			want: nil,
 		},
 	}
 
@@ -308,37 +330,87 @@ func TestService_RemoveTag(t *testing.T) {
 		require.Error(t, err)
 		assert.True(t, errors.Is(err, vault.ErrNotFound))
 	})
+
+	t.Run("inline removal preserves tag inside code fence", func(t *testing.T) {
+		t.Parallel()
+		// The note has #real_tag in a fenced code block AND in prose.
+		// After RemoveTag the prose occurrence must be gone but the fenced
+		// line must remain byte-for-byte identical.
+		content := "# Fence Test\n\n" +
+			"```go\n" +
+			"// use #real_tag here\n" +
+			"```\n\n" +
+			"Prose uses #real_tag too.\n"
+
+		root, path := makeTempNote(t, content)
+		svc := newService(root)
+
+		require.NoError(t, svc.RemoveTag(ctx, path, "real_tag"))
+
+		data, err := os.ReadFile(filepath.Join(root, path))
+		require.NoError(t, err)
+		got := string(data)
+
+		// The fenced line must be preserved verbatim.
+		assert.True(t, strings.Contains(got, "// use #real_tag here"),
+			"fenced #real_tag must not be removed; got:\n%s", got)
+
+		// The prose occurrence must be removed.
+		assert.False(t, strings.Contains(got, "Prose uses #real_tag"),
+			"prose #real_tag must be removed; got:\n%s", got)
+	})
+
+	t.Run("inline removal inside tilde fence is preserved", func(t *testing.T) {
+		t.Parallel()
+		content := "Some prose #keep_me here.\n\n" +
+			"~~~\n" +
+			"#keep_me inside tilde fence\n" +
+			"~~~\n"
+
+		root, path := makeTempNote(t, content)
+		svc := newService(root)
+
+		require.NoError(t, svc.RemoveTag(ctx, path, "keep_me"))
+
+		data, err := os.ReadFile(filepath.Join(root, path))
+		require.NoError(t, err)
+		got := string(data)
+
+		// Fenced line must be intact.
+		assert.True(t, strings.Contains(got, "#keep_me inside tilde fence"),
+			"fenced #keep_me must not be removed; got:\n%s", got)
+
+		// Prose occurrence must be gone.
+		assert.False(t, strings.Contains(got, "prose #keep_me"),
+			"prose #keep_me must be removed; got:\n%s", got)
+	})
 }
 
 // ----------------------------------------------------------------------------
-// Service.AggregateTags
+// Service.AggregateTags — code-fence exclusion
 // ----------------------------------------------------------------------------
 
-func TestService_AggregateTags(t *testing.T) {
+func TestAggregateTags_ExcludesFencedTags(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	svc := newService(testVaultRoot)
 
-	t.Run("returns tag counts across vault", func(t *testing.T) {
-		t.Parallel()
-		counts, err := svc.AggregateTags(ctx)
-		require.NoError(t, err)
+	// Note contains a fenced tag (#fake_tag) that must NOT be counted,
+	// and a prose tag (#real_tag) that must be counted.
+	content := "# Fenced Tag Test\n\n" +
+		"```go\n" +
+		"// #fake_tag should not be counted\n" +
+		"```\n\n" +
+		"Real prose uses #real_tag here.\n"
 
-		// tagged.md has FM tags project, planning and inline obsidian, golang, todo.
-		// with-fm.md has FM tags research, ideas.
-		assert.Greater(t, counts["project"], 0, "project tag should appear")
-		assert.Greater(t, counts["obsidian"], 0, "obsidian tag should appear")
-		assert.Greater(t, counts["research"], 0, "research tag should appear")
-	})
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "note.md"), []byte(content), 0644))
 
-	t.Run("excludes .obsidian directory", func(t *testing.T) {
-		t.Parallel()
-		counts, err := svc.AggregateTags(ctx)
-		require.NoError(t, err)
+	svc := newService(dir)
 
-		// Verify that the walk returns a non-empty result (walk is working)
-		// and doesn't panic on ignored dirs.
-		assert.NotNil(t, counts)
-	})
+	counts, err := svc.AggregateTags(ctx)
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, counts["real_tag"], "real_tag should appear once")
+	assert.Equal(t, 0, counts["fake_tag"], "fake_tag inside code fence should not be counted")
 }

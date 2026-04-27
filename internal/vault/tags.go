@@ -3,28 +3,29 @@ package vault
 import (
 	"context"
 	"fmt"
-	"io/fs"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/tylern91/obsidian-mcp-server/internal/markdown"
 )
 
 // tagRegex matches Obsidian-style inline tags: #tag preceded by start-of-line or
 // a non-word character.  The tag body must be Unicode letters, digits,
 // underscores, slashes, or hyphens.
-//
-// Phase 2 limitation: tags inside fenced code blocks are over-counted.
-// Code-fence-aware parsing is deferred to Phase 3.
 var tagRegex = regexp.MustCompile(`(?m)(?:^|[^\p{L}\p{N}_/])#([\p{L}\p{N}_/\-]+)`)
 
 // ExtractInlineTags returns all unique inline #tags found in body text.
 // Tags are returned in the order first encountered, case-sensitively deduped
 // (Obsidian treats #TODO and #todo as distinct tags).
+//
+// Code-fenced regions (``` ... ``` and ~~~ ... ~~~) and inline backtick spans
+// are excluded from matching so that tags inside code blocks are not counted.
 func ExtractInlineTags(body string) []string {
-	matches := tagRegex.FindAllStringSubmatch(body, -1)
+	stripped := markdown.StripCodeFences(body)
+	matches := tagRegex.FindAllStringSubmatch(stripped, -1)
 
 	seen := make(map[string]struct{}, len(matches))
 	out := make([]string, 0, len(matches))
@@ -265,6 +266,11 @@ func addTagToFrontmatter(mapping *yaml.Node, tag, body string) (string, error) {
 // The method is a no-op (returns nil) when the tag is not present in either
 // location.  It is atomic: holds the service mutex for the full
 // read-modify-write cycle.
+//
+// Code-fenced regions are skipped during the inline removal: a tag that appears
+// only inside a code block is NOT removed from the prose (because it was never
+// counted as a prose tag). The body is processed line-by-line using a
+// fence-state-machine so that lines inside fences are written back unchanged.
 func (s *Service) RemoveTag(ctx context.Context, path, tag string) error {
 	_, absPath, err := s.sanitizePath("remove_tag", path)
 	if err != nil {
@@ -323,23 +329,59 @@ func (s *Service) RemoveTag(ctx context.Context, path, tag string) error {
 		}
 	}
 
-	// Remove inline #tag occurrences from body.
+	// Remove inline #tag occurrences from body, skipping fenced code blocks.
+	//
+	// We process the body line-by-line with a fence-state-machine identical to
+	// markdown.StripCodeFences, but instead of replacing fence content with
+	// spaces we preserve it verbatim.  Only lines that are outside a fence have
+	// the tag-removal regex applied.
 	removeInline := regexp.MustCompile(`(?m)(?:^|([^\p{L}\p{N}_/]))#` + regexp.QuoteMeta(tag) + `(?:[^\p{L}\p{N}_/\-]|$)`)
-	newBody := removeInline.ReplaceAllStringFunc(body, func(match string) string {
-		// Preserve the leading non-tag character if present (group 1).
-		if len(match) > 0 && !strings.HasPrefix(match, "#") {
-			return string(match[0])
+
+	lines := strings.Split(body, "\n")
+	inFence := false
+	var fenceChar byte
+	var fenceLen int
+	out := make([]string, 0, len(lines))
+
+	for _, line := range lines {
+		trimmed := strings.TrimRight(line, "\r")
+
+		if !inFence {
+			// Check whether this line opens a fence.
+			if ch, n := removeTagFenceOpener(trimmed); n > 0 {
+				inFence = true
+				fenceChar = ch
+				fenceLen = n
+				out = append(out, line) // preserve fence opener unchanged
+				continue
+			}
+			// Outside a fence: apply tag removal to this line.
+			replaced := removeInline.ReplaceAllStringFunc(line, func(match string) string {
+				// Preserve the leading non-tag character if present.
+				if len(match) > 0 && !strings.HasPrefix(match, "#") {
+					return string(match[0])
+				}
+				return ""
+			})
+			out = append(out, replaced)
+		} else {
+			// Inside a fence: check for closing delimiter.
+			if removeTagFenceCloser(trimmed, fenceChar, fenceLen) {
+				inFence = false
+			}
+			out = append(out, line) // preserve fence content unchanged
 		}
-		return ""
-	})
+	}
+
+	newBody := strings.Join(out, "\n")
 
 	var assembled string
 	if hasFM && mapping != nil {
-		out, marshalErr := yaml.Marshal(mapping)
+		marshaledFM, marshalErr := yaml.Marshal(mapping)
 		if marshalErr != nil {
 			return fmt.Errorf("remove_tag: marshal: %w", marshalErr)
 		}
-		assembled = "---\n" + string(out) + "---\n" + newBody
+		assembled = "---\n" + string(marshaledFM) + "---\n" + newBody
 	} else {
 		assembled = newBody
 	}
@@ -351,6 +393,45 @@ func (s *Service) RemoveTag(ctx context.Context, path, tag string) error {
 	return nil
 }
 
+// removeTagFenceOpener reports whether line opens a fenced code block.
+// It returns the fence character ('`' or '~') and the run length (≥3) on match,
+// or 0, 0 when the line is not a fence opener.
+// The fence must start at column 0 and consist of 3 or more identical characters.
+func removeTagFenceOpener(line string) (byte, int) {
+	for _, ch := range []byte{'`', '~'} {
+		if len(line) >= 3 && line[0] == ch && line[1] == ch && line[2] == ch {
+			n := 3
+			for n < len(line) && line[n] == ch {
+				n++
+			}
+			return ch, n
+		}
+	}
+	return 0, 0
+}
+
+// removeTagFenceCloser reports whether line closes a fence that was opened with
+// fenceChar and run length fenceLen. A closer requires at least fenceLen
+// consecutive fenceChar characters, optionally followed by spaces only.
+func removeTagFenceCloser(line string, fenceChar byte, fenceLen int) bool {
+	if len(line) < fenceLen {
+		return false
+	}
+	i := 0
+	for i < len(line) && line[i] == fenceChar {
+		i++
+	}
+	if i < fenceLen {
+		return false
+	}
+	for ; i < len(line); i++ {
+		if line[i] != ' ' {
+			return false
+		}
+	}
+	return true
+}
+
 // AggregateTags walks the entire vault and returns a map from tag name to the
 // number of notes it appears in (frontmatter + inline, deduplicated per note).
 //
@@ -360,41 +441,10 @@ func (s *Service) RemoveTag(ctx context.Context, path, tag string) error {
 func (s *Service) AggregateTags(ctx context.Context) (map[string]int, error) {
 	counts := make(map[string]int)
 
-	err := filepath.WalkDir(s.root, func(path string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return nil // skip unreadable entries
-		}
-
-		// Skip ignored directory trees early.
-		if d.IsDir() {
-			rel, relErr := filepath.Rel(s.root, path)
-			if relErr != nil {
-				return nil
-			}
-			if rel != "." && s.filter != nil && s.filter.IsIgnored(rel) {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
-		// Filter by extension.
-		rel, relErr := filepath.Rel(s.root, path)
-		if relErr != nil {
-			return nil
-		}
-
-		if s.filter != nil {
-			if s.filter.IsIgnored(rel) {
-				return nil
-			}
-			if !s.filter.IsAllowedExtension(filepath.Ext(path)) {
-				return nil
-			}
-		}
-
-		data, readErr := os.ReadFile(path)
+	err := s.WalkNotes(ctx, func(rel, abs string) error {
+		data, readErr := os.ReadFile(abs)
 		if readErr != nil {
-			return nil
+			return nil // skip unreadable files silently
 		}
 
 		content := string(data)

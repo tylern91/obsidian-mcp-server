@@ -9,6 +9,8 @@ A Go [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server for 
 - **Tags** — extract inline `#tags`, aggregate vault-wide tag counts, add/remove tags
 - **Backlinks** — on-demand reverse link graph (wikilinks and markdown links)
 - **Mutations** — heading-anchored patch, safe delete, and move with confirmation guards
+- **Full-text search** — BM25 Okapi ranked search with match snippets
+- **Regex/glob search** — RE2 regex or filepath glob search across paths and content
 - **Path security** — 4-layer validation: lexical checks, ignore/extension filters, case-insensitive existence lookup, and symlink escape prevention
 - **Stdio transport** — works with any MCP client (Claude Code, Claude Desktop, etc.)
 - **Zero Obsidian dependency** — operates on the vault directory directly
@@ -29,6 +31,8 @@ A Go [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server for 
 | `patch_note` | Apply a heading-anchored patch to a note | `path`, `heading`, `position`: before/after/replace_body, `content` (all required) |
 | `delete_note` | Permanently delete a note (requires confirm) | `path`, `confirm` (must match path exactly) |
 | `move_note` | Move or rename a note within the vault (requires confirm) | `src`, `dst`, `confirm` (must match src exactly) |
+| `search_notes` | BM25 full-text search with ranked results and match snippets | `query` (required), `limit`, `maxMatchesPerFile`, `caseSensitive`, `searchContent`, `searchFrontmatter`, `pathScope`, `prettyPrint` |
+| `search_regex` | Search using RE2 regex or glob pattern | `pattern` (required), `isGlob`, `scope`, `limit`, `maxMatchesPerFile`, `prettyPrint` |
 
 ### Notes
 
@@ -37,7 +41,33 @@ A Go [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server for 
 - `after` — inserted after the heading's body (before the next same-level or higher heading)
 - `replace_body` — replaces everything between the heading line and the next same-level heading
 
-**Tag limitation (Phase 2)**: `#tags` inside fenced code blocks are counted as inline tags. Code-fence-aware tag parsing is deferred to Phase 3.
+**`search_notes` parameters**:
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `query` | string | required | Search query. Multi-term queries use OR logic; the full phrase contributes a bonus score. |
+| `limit` | integer | 20 | Maximum number of results |
+| `maxMatchesPerFile` | integer | 3 | Maximum match snippets per result |
+| `caseSensitive` | boolean | false | Case-sensitive matching |
+| `searchContent` | boolean | true | Include note body in scoring |
+| `searchFrontmatter` | boolean | true | Include frontmatter values in scoring |
+| `pathScope` | string | — | Glob pattern to restrict search scope (e.g. `Daily Notes/*`) |
+| `prettyPrint` | boolean | false | Format JSON with indentation |
+
+Returns: `{ query, results: [{ path, score, matchCount, matches: [{line, snippet, term}], tokenCount, reason }], total }`
+
+**`search_regex` parameters**:
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `pattern` | string | required | RE2 regex or glob pattern |
+| `isGlob` | boolean | false | Treat pattern as a filepath glob (`**` matches across dirs) |
+| `scope` | string | content | `path`, `content`, or `both` |
+| `limit` | integer | 20 | Maximum number of results |
+| `maxMatchesPerFile` | integer | 5 | Maximum match snippets per result |
+| `prettyPrint` | boolean | false | Format JSON with indentation |
+
+Returns: `{ pattern, scope, results: [{ path, matches: [{line, snippet}] }], total }`
 
 ## Installation
 
@@ -98,7 +128,7 @@ Configuration follows **CLI flag > environment variable > default** precedence.
 | `--ignore` | `OBSIDIAN_IGNORE` | `.obsidian,.git,node_modules,.DS_Store,.trash` | Comma-separated list of file/directory names to skip during traversal. Match is by name (not glob). Whitespace trimmed; empties discarded. |
 | `--pretty` | `OBSIDIAN_PRETTY` | `false` | CLI: bare `--pretty` enables it. Env var: any value accepted by Go's `strconv.ParseBool` — `1`, `t`, `T`, `true`, `TRUE`, `True`, `0`, `f`, `F`, `false`, `FALSE`, `False`. Anything else causes a startup error. |
 | `--max-batch` | `OBSIDIAN_MAX_BATCH` | `10` | Integer ≥ `1`. Non-integer or `<1` causes a startup error. Caps the number of files processed in a single batch tool call (Phase 4). **High values increase memory usage and token count per response** — very large batches can overflow an AI client's context window and slow down individual tool calls. Keep at or near the default unless your vault files are small. |
-| `--max-results` | `OBSIDIAN_MAX_RESULTS` | `20` | Integer ≥ `1`. Non-integer or `<1` causes a startup error. Caps the number of search results returned (Phase 3). **High values increase response token count** — returning hundreds of results per search can exhaust the AI client's context window with low-relevance entries. Increase only when precision-recall trade-offs require broader result sets. |
+| `--max-results` | `OBSIDIAN_MAX_RESULTS` | `20` | Integer ≥ `1`. Non-integer or `<1` causes a startup error. Caps the number of search results returned. **High values increase response token count** — returning hundreds of results per search can exhaust the AI client's context window with low-relevance entries. Increase only when precision-recall trade-offs require broader result sets. |
 | `--log-level` | `OBSIDIAN_LOG_LEVEL` | `warn` | One of: `debug`, `info`, `warn`, `error` (lowercase, case-sensitive). Unknown values silently fall back to `warn` — no error, no warning logged. |
 
 ### Examples
@@ -140,7 +170,7 @@ internal/
   vault/              Path security, CRUD, frontmatter, tags, links, mutations
   tools/              MCP tool registrations and handlers
   response/           Token counting, JSON formatting
-  search/             BM25 ranked search (Phase 3)
+  search/             BM25 ranked search, regex/glob
   periodic/           Periodic note resolution (Phase 4)
   prompts/            MCP Prompt templates (Phase 5)
 testdata/vault/       Fixture vault for tests
@@ -160,7 +190,7 @@ make help     # list all targets
 ## Roadmap
 
 - ~~**Phase 2** — Frontmatter parsing, tag management, backlinks, patch/delete/move notes~~ ✅ **Complete**
-- **Phase 3** — BM25 full-text search, regex search, code-fence-aware tag parsing
+- ~~**Phase 3** — BM25 full-text search, regex/glob search~~ ✅ **Complete**
 - **Phase 4** — Batch operations, vault stats, periodic notes, recent changes
 - **Phase 5** — MCP Prompts, Resources, and release packaging
 
