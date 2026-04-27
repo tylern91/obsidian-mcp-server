@@ -47,3 +47,36 @@ func FormatJSON(data any, prettyPrint bool) (string, error) {
 	}
 	return string(b), nil
 }
+
+// Truncate returns (s[:maxRunes], true) if s exceeds maxRunes runes,
+// otherwise (s, false). The cut is always on a rune boundary.
+// CRLF sequences (\r\n) are kept together: if a \n would fall at or before the
+// cut point but its preceding \r would be split off, the cut is moved back
+// before the \r so the pair travels together.
+func Truncate(s string, maxRunes int) (string, bool) {
+	r := []rune(s)
+	if len(r) <= maxRunes {
+		return s, false
+	}
+	cut := maxRunes
+	// Do not split a CRLF pair: if the rune at cut-1 is \r and cut is within
+	// bounds with \n next, OR if rune at cut is \n and cut-1 is \r,
+	// retract the cut to before the \r.
+	if cut > 0 && cut < len(r) && r[cut-1] == '\r' && r[cut] == '\n' {
+		// \r is at cut-1, \n is at cut — cutting here would orphan \r
+		cut--
+	}
+	return string(r[:cut]), true
+}
+
+// HeadRunes returns up to the first n runes of s.
+func HeadRunes(s string, n int) string {
+	r := []rune(s)
+	if n <= 0 {
+		return ""
+	}
+	if n >= len(r) {
+		return s
+	}
+	return string(r[:n])
+}

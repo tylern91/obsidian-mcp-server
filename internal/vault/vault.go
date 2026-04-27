@@ -362,3 +362,77 @@ func (s *Service) ListDirectory(ctx context.Context, path string) ([]DirEntry, e
 
 	return results, nil
 }
+
+// NoteInfo holds lightweight metadata for a note (no content returned to caller).
+type NoteInfo struct {
+	Path      string // vault-relative path, forward slashes
+	Size      int64
+	ModTime   time.Time
+	Title     string // frontmatter "title" key, or filename stem as fallback
+	TagCount  int    // number of unique tags from ListTags
+	LinkCount int    // number of unique link targets from ExtractLinks
+}
+
+// StatNote returns NoteInfo for the given vault-relative path.
+// It reads the full note content (needed for tags and links) but does NOT
+// return the content itself.
+//
+// ReadNote is called exactly once; frontmatter and tags are extracted from
+// the already-read content so there is no second I/O round-trip.
+func (s *Service) StatNote(ctx context.Context, path string) (*NoteInfo, error) {
+	note, err := s.ReadNote(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse frontmatter directly from the already-read content (no second read).
+	rawFM, body, hasFM := SplitFrontmatter(note.Content)
+
+	// Parse frontmatter once; extract title and tags from the same map.
+	title := ""
+	var fmTags []string
+	if hasFM {
+		if fm, fmErr := ParseFrontmatter(rawFM); fmErr == nil {
+			if v, ok := fm["title"]; ok {
+				if titleStr, ok := v.(string); ok {
+					title = titleStr
+				}
+			}
+			fmTags = ExtractFrontmatterTags(fm)
+		}
+	}
+	// Fall back to filename stem.
+	if title == "" {
+		base := filepath.Base(path)
+		title = strings.TrimSuffix(base, filepath.Ext(base))
+	}
+	inlineTags := ExtractInlineTags(body)
+
+	// Merge: frontmatter tags first, then inline-only tags.
+	seen := make(map[string]struct{}, len(fmTags)+len(inlineTags))
+	tags := make([]string, 0, len(fmTags)+len(inlineTags))
+	for _, t := range fmTags {
+		if _, dup := seen[t]; !dup {
+			seen[t] = struct{}{}
+			tags = append(tags, t)
+		}
+	}
+	for _, t := range inlineTags {
+		if _, dup := seen[t]; !dup {
+			seen[t] = struct{}{}
+			tags = append(tags, t)
+		}
+	}
+
+	// Links: extract from the full note content (wikilinks span the whole file).
+	links := ExtractLinks(note.Content)
+
+	return &NoteInfo{
+		Path:      path,
+		Size:      note.Size,
+		ModTime:   note.ModTime,
+		Title:     title,
+		TagCount:  len(tags),
+		LinkCount: len(links),
+	}, nil
+}

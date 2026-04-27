@@ -100,10 +100,10 @@ func updateFrontmatterHandler(deps Deps) server.ToolHandlerFunc {
 		}
 
 		type updateResponse struct {
-			Success    bool     `json:"success"`
-			Path       string   `json:"path"`
-			Updated    []string `json:"updated,omitempty"`
-			Removed    []string `json:"removed,omitempty"`
+			Success bool     `json:"success"`
+			Path    string   `json:"path"`
+			Updated []string `json:"updated,omitempty"`
+			Removed []string `json:"removed,omitempty"`
 		}
 		updatedKeys := make([]string, 0, len(updates))
 		for k := range updates {

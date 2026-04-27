@@ -33,6 +33,13 @@ A Go [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server for 
 | `move_note` | Move or rename a note within the vault (requires confirm) | `src`, `dst`, `confirm` (must match src exactly) |
 | `search_notes` | BM25 full-text search with ranked results and match snippets | `query` (required), `limit`, `maxMatchesPerFile`, `caseSensitive`, `searchContent`, `searchFrontmatter`, `pathScope`, `prettyPrint` |
 | `search_regex` | Search using RE2 regex or glob pattern | `pattern` (required), `isGlob`, `scope`, `limit`, `maxMatchesPerFile`, `prettyPrint` |
+| `read_multiple_notes` | Read the content of multiple notes in a single request | `paths` (required, JSON array), `summary` (bool, default false), `headChars` (int, default 200) |
+| `get_notes_info` | Get metadata for multiple notes without reading full content | `paths` (required, JSON array) |
+| `get_vault_stats` | Get aggregate statistics about the entire vault | `includeTokenCounts` (bool, default false) |
+| `get_periodic_note` | Get a periodic note (daily, weekly, monthly, quarterly, or yearly) | `granularity` (required, enum: daily/weekly/monthly/quarterly/yearly), `offset` (int, default 0), `createIfMissing` (bool, default false) |
+| `get_recent_periodic_notes` | Get the N most recent periodic notes | `granularity` (required, enum: daily/weekly/monthly/quarterly/yearly), `count` (int, default 5), `summary` (bool, default true) |
+| `get_recent_changes` | List notes most recently modified in the vault | `limit` (int, default 10), `since` (string, ISO-8601), `summary` (bool, default true) |
+| `audit_notes` | Audit the vault for hygiene issues: orphans, dangling links, untagged notes, duplicate titles | `classes` (JSON array: orphans/dangling-links/untagged/duplicate-titles, default all), `limit` (int per class, default 20) |
 
 ### Notes
 
@@ -68,6 +75,20 @@ Returns: `{ query, results: [{ path, score, matchCount, matches: [{line, snippet
 | `prettyPrint` | boolean | false | Format JSON with indentation |
 
 Returns: `{ pattern, scope, results: [{ path, matches: [{line, snippet}] }], total }`
+
+**Batch tools (`read_multiple_notes`, `get_notes_info`)**: The `paths` parameter is a JSON array string — e.g. `'["Notes/foo.md","Notes/bar.md"]'`. `summary:true` returns `headOf` (first N runes from `headChars`, default 200) instead of full content, which is useful for large notes to stay within context limits. Both tools enforce `--max-batch` (default 10); requests with more paths are silently truncated and the response includes `"truncated": true`.
+
+**Periodic notes (`get_periodic_note`, `get_recent_periodic_notes`)**: Configuration (folder and date format per granularity) is read from `.obsidian/plugins/periodic-notes/data.json` inside the vault. If that file is missing, built-in defaults are used: daily notes use `YYYY-MM-DD` in `Daily Notes/`, weekly notes use `gggg-[W]ww` in `Weekly Notes/`, and so on. `offset=0` resolves to the current period, `offset=-1` to the previous period (yesterday, last week, etc.), and `offset=+1` to the next period. `createIfMissing=true` creates an empty note at the resolved path if it does not already exist.
+
+**`get_vault_stats`**: Returns `noteCount`, `totalBytes`, `totalLinks`, `totalTags`, `topTags` (top 20 by count), `oldestNote`, `newestNote`, and `vaultRoot`. Setting `includeTokenCounts:true` runs token counting across every note — this is expensive for large vaults and is disabled by default.
+
+**`audit_notes` classes**:
+- `orphans` — notes that have no tags AND no incoming wikilinks or markdown links (completely isolated notes)
+- `dangling-links` — notes containing links to vault paths that do not exist (broken references)
+- `untagged` — notes with no frontmatter tags and no inline `#tags`
+- `duplicate-titles` — multiple notes sharing the same filename stem, which causes wikilink ambiguity
+
+Each class result is capped at `limit` entries (default 20). When results are truncated, the response includes `"truncated": true`.
 
 ## Installation
 
@@ -191,7 +212,7 @@ make help     # list all targets
 
 - ~~**Phase 2** — Frontmatter parsing, tag management, backlinks, patch/delete/move notes~~ ✅ **Complete**
 - ~~**Phase 3** — BM25 full-text search, regex/glob search~~ ✅ **Complete**
-- **Phase 4** — Batch operations, vault stats, periodic notes, recent changes
+- ~~**Phase 4** — Batch operations, vault stats, periodic notes, recent changes~~ ✅ **Complete**
 - **Phase 5** — MCP Prompts, Resources, and release packaging
 
 ## License

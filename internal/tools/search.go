@@ -70,9 +70,9 @@ func searchNotesHandler(deps Deps) server.ToolHandlerFunc {
 		}
 
 		type searchNotesResponse struct {
-			Query   string            `json:"query"`
+			Query   string              `json:"query"`
 			Results []search.BM25Result `json:"results"`
-			Total   int               `json:"total"`
+			Total   int                 `json:"total"`
 		}
 		out, err := response.FormatJSON(searchNotesResponse{
 			Query:   query,
@@ -143,10 +143,10 @@ func searchRegexHandler(deps Deps) server.ToolHandlerFunc {
 		}
 
 		type searchRegexResponse struct {
-			Pattern string              `json:"pattern"`
-			Scope   string              `json:"scope"`
+			Pattern string               `json:"pattern"`
+			Scope   string               `json:"scope"`
 			Results []search.RegexResult `json:"results"`
-			Total   int                 `json:"total"`
+			Total   int                  `json:"total"`
 		}
 		out, err := response.FormatJSON(searchRegexResponse{
 			Pattern: pattern,
