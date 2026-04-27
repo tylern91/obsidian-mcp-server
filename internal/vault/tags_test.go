@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -328,6 +329,60 @@ func TestService_RemoveTag(t *testing.T) {
 		err := svc.RemoveTag(ctx, "missing.md", "tag")
 		require.Error(t, err)
 		assert.True(t, errors.Is(err, vault.ErrNotFound))
+	})
+
+	t.Run("inline removal preserves tag inside code fence", func(t *testing.T) {
+		t.Parallel()
+		// The note has #real_tag in a fenced code block AND in prose.
+		// After RemoveTag the prose occurrence must be gone but the fenced
+		// line must remain byte-for-byte identical.
+		content := "# Fence Test\n\n" +
+			"```go\n" +
+			"// use #real_tag here\n" +
+			"```\n\n" +
+			"Prose uses #real_tag too.\n"
+
+		root, path := makeTempNote(t, content)
+		svc := newService(root)
+
+		require.NoError(t, svc.RemoveTag(ctx, path, "real_tag"))
+
+		data, err := os.ReadFile(filepath.Join(root, path))
+		require.NoError(t, err)
+		got := string(data)
+
+		// The fenced line must be preserved verbatim.
+		assert.True(t, strings.Contains(got, "// use #real_tag here"),
+			"fenced #real_tag must not be removed; got:\n%s", got)
+
+		// The prose occurrence must be removed.
+		assert.False(t, strings.Contains(got, "Prose uses #real_tag"),
+			"prose #real_tag must be removed; got:\n%s", got)
+	})
+
+	t.Run("inline removal inside tilde fence is preserved", func(t *testing.T) {
+		t.Parallel()
+		content := "Some prose #keep_me here.\n\n" +
+			"~~~\n" +
+			"#keep_me inside tilde fence\n" +
+			"~~~\n"
+
+		root, path := makeTempNote(t, content)
+		svc := newService(root)
+
+		require.NoError(t, svc.RemoveTag(ctx, path, "keep_me"))
+
+		data, err := os.ReadFile(filepath.Join(root, path))
+		require.NoError(t, err)
+		got := string(data)
+
+		// Fenced line must be intact.
+		assert.True(t, strings.Contains(got, "#keep_me inside tilde fence"),
+			"fenced #keep_me must not be removed; got:\n%s", got)
+
+		// Prose occurrence must be gone.
+		assert.False(t, strings.Contains(got, "prose #keep_me"),
+			"prose #keep_me must be removed; got:\n%s", got)
 	})
 }
 

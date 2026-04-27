@@ -267,10 +267,10 @@ func addTagToFrontmatter(mapping *yaml.Node, tag, body string) (string, error) {
 // location.  It is atomic: holds the service mutex for the full
 // read-modify-write cycle.
 //
-// Code-fenced regions are skipped during the inline search: a tag that appears
+// Code-fenced regions are skipped during the inline removal: a tag that appears
 // only inside a code block is NOT removed from the prose (because it was never
-// counted as a prose tag). The replacement is applied to the original body
-// (fences intact) so that code blocks are written back unchanged.
+// counted as a prose tag). The body is processed line-by-line using a
+// fence-state-machine so that lines inside fences are written back unchanged.
 func (s *Service) RemoveTag(ctx context.Context, path, tag string) error {
 	_, absPath, err := s.sanitizePath("remove_tag", path)
 	if err != nil {
@@ -329,27 +329,59 @@ func (s *Service) RemoveTag(ctx context.Context, path, tag string) error {
 		}
 	}
 
-	// Remove inline #tag occurrences from body.
+	// Remove inline #tag occurrences from body, skipping fenced code blocks.
 	//
-	// Strip code fences for the purpose of deciding whether the tag exists in
-	// prose — but run the actual regex replacement on the original body so that
-	// code blocks are preserved verbatim.
+	// We process the body line-by-line with a fence-state-machine identical to
+	// markdown.StripCodeFences, but instead of replacing fence content with
+	// spaces we preserve it verbatim.  Only lines that are outside a fence have
+	// the tag-removal regex applied.
 	removeInline := regexp.MustCompile(`(?m)(?:^|([^\p{L}\p{N}_/]))#` + regexp.QuoteMeta(tag) + `(?:[^\p{L}\p{N}_/\-]|$)`)
-	newBody := removeInline.ReplaceAllStringFunc(body, func(match string) string {
-		// Preserve the leading non-tag character if present (group 1).
-		if len(match) > 0 && !strings.HasPrefix(match, "#") {
-			return string(match[0])
+
+	lines := strings.Split(body, "\n")
+	inFence := false
+	var fenceChar byte
+	var fenceLen int
+	out := make([]string, 0, len(lines))
+
+	for _, line := range lines {
+		trimmed := strings.TrimRight(line, "\r")
+
+		if !inFence {
+			// Check whether this line opens a fence.
+			if ch, n := removeTagFenceOpener(trimmed); n > 0 {
+				inFence = true
+				fenceChar = ch
+				fenceLen = n
+				out = append(out, line) // preserve fence opener unchanged
+				continue
+			}
+			// Outside a fence: apply tag removal to this line.
+			replaced := removeInline.ReplaceAllStringFunc(line, func(match string) string {
+				// Preserve the leading non-tag character if present.
+				if len(match) > 0 && !strings.HasPrefix(match, "#") {
+					return string(match[0])
+				}
+				return ""
+			})
+			out = append(out, replaced)
+		} else {
+			// Inside a fence: check for closing delimiter.
+			if removeTagFenceCloser(trimmed, fenceChar, fenceLen) {
+				inFence = false
+			}
+			out = append(out, line) // preserve fence content unchanged
 		}
-		return ""
-	})
+	}
+
+	newBody := strings.Join(out, "\n")
 
 	var assembled string
 	if hasFM && mapping != nil {
-		out, marshalErr := yaml.Marshal(mapping)
+		marshaledFM, marshalErr := yaml.Marshal(mapping)
 		if marshalErr != nil {
 			return fmt.Errorf("remove_tag: marshal: %w", marshalErr)
 		}
-		assembled = "---\n" + string(out) + "---\n" + newBody
+		assembled = "---\n" + string(marshaledFM) + "---\n" + newBody
 	} else {
 		assembled = newBody
 	}
@@ -359,6 +391,45 @@ func (s *Service) RemoveTag(ctx context.Context, path, tag string) error {
 	}
 
 	return nil
+}
+
+// removeTagFenceOpener reports whether line opens a fenced code block.
+// It returns the fence character ('`' or '~') and the run length (≥3) on match,
+// or 0, 0 when the line is not a fence opener.
+// The fence must start at column 0 and consist of 3 or more identical characters.
+func removeTagFenceOpener(line string) (byte, int) {
+	for _, ch := range []byte{'`', '~'} {
+		if len(line) >= 3 && line[0] == ch && line[1] == ch && line[2] == ch {
+			n := 3
+			for n < len(line) && line[n] == ch {
+				n++
+			}
+			return ch, n
+		}
+	}
+	return 0, 0
+}
+
+// removeTagFenceCloser reports whether line closes a fence that was opened with
+// fenceChar and run length fenceLen. A closer requires at least fenceLen
+// consecutive fenceChar characters, optionally followed by spaces only.
+func removeTagFenceCloser(line string, fenceChar byte, fenceLen int) bool {
+	if len(line) < fenceLen {
+		return false
+	}
+	i := 0
+	for i < len(line) && line[i] == fenceChar {
+		i++
+	}
+	if i < fenceLen {
+		return false
+	}
+	for ; i < len(line); i++ {
+		if line[i] != ' ' {
+			return false
+		}
+	}
+	return true
 }
 
 // AggregateTags walks the entire vault and returns a map from tag name to the
