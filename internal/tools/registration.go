@@ -81,4 +81,5 @@ func RegisterAll(s *server.MCPServer, deps Deps) {
 	registerGetRecentChanges(s, deps)
 	registerGetPeriodicNote(s, deps)
 	registerGetRecentPeriodicNotes(s, deps)
+	registerAuditNotes(s, deps)
 }

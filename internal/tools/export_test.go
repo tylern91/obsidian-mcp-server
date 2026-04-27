@@ -23,3 +23,4 @@ var GetPeriodicNoteHandler = func(deps Deps) server.ToolHandlerFunc { return get
 var GetRecentPeriodicNotesHandler = func(deps Deps) server.ToolHandlerFunc {
 	return getRecentPeriodicNotesHandler(deps)
 }
+var AuditNotesHandler = func(deps Deps) server.ToolHandlerFunc { return auditNotesHandler(deps) }
