@@ -90,6 +90,35 @@ Returns: `{ pattern, scope, results: [{ path, matches: [{line, snippet}] }], tot
 
 Each class result is capped at `limit` entries (default 20). When results are truncated, the response includes `"truncated": true`.
 
+## MCP Prompts
+
+Prompts are server-defined conversation starters that the host (Claude Code, Claude Desktop) exposes in its UI. Each prompt pulls live vault data and constructs a ready-to-use message for the LLM.
+
+| Prompt | Description | Arguments |
+| --- | --- | --- |
+| `summarize_note` | Summarize a note: 3 key bullets, entities, open questions | `path` (required) |
+| `daily_note_review` | Review a daily note: carryover TODOs, link suggestions, missing tags | `offset` (int, default 0) |
+| `weekly_review` | Weekly retrospective from the last 7 daily notes | `weekOffset` (int, default 0) |
+| `find_related` | Suggest related notes worth linking, grouped by relationship type | `path` (required) |
+| `vault_health_check` | Audit orphans, dangling links, untagged notes, duplicate titles; prioritize fixes | *(none)* |
+
+Prompts are invoked from the host's prompt picker (e.g. `/` in Claude Code). They never modify the vault.
+
+## MCP Resources
+
+Resources are read-only vault data that the host can attach directly to a conversation context window — no explicit tool call required.
+
+| Resource / Template | URI | MIME | Description |
+| --- | --- | --- | --- |
+| Vault statistics | `obsidian://vault/stats` | `application/json` | Note count, total size, top 10 tags, vault root |
+| Tag index | `obsidian://vault/tags` | `application/json` | All tags with note counts, sorted by frequency |
+| Note content | `obsidian://note/{path}` | `text/markdown` | Raw markdown (frontmatter + body) for any vault note |
+| Periodic note | `obsidian://periodic/{granularity}` | `text/markdown` | Current daily / weekly / monthly / quarterly / yearly note |
+| Backlinks | `obsidian://backlinks/{path}` | `application/json` | All notes linking to the target, with line numbers and snippets |
+
+Static resources (`obsidian://vault/*`) are always available in the resource picker. Template resources are resolved when the host reads them — if the note does not exist, the resource returns an explanatory empty body instead of an error.
+
+
 ## Installation
 
 Requires Go 1.23+.
@@ -193,7 +222,8 @@ internal/
   response/           Token counting, JSON formatting
   search/             BM25 ranked search, regex/glob
   periodic/           Periodic note resolution (Phase 4)
-  prompts/            MCP Prompt templates (Phase 5)
+  prompts/            MCP Prompt templates
+  resources/          MCP Resource registrations
 testdata/vault/       Fixture vault for tests
 ```
 
@@ -213,7 +243,7 @@ make help     # list all targets
 - ~~**Phase 2** — Frontmatter parsing, tag management, backlinks, patch/delete/move notes~~ ✅ **Complete**
 - ~~**Phase 3** — BM25 full-text search, regex/glob search~~ ✅ **Complete**
 - ~~**Phase 4** — Batch operations, vault stats, periodic notes, recent changes~~ ✅ **Complete**
-- **Phase 5** — MCP Prompts, Resources, and release packaging
+- ~~**Phase 5** — MCP Prompts, Resources, and release packaging~~ ✅ **Complete**
 
 ## License
 
