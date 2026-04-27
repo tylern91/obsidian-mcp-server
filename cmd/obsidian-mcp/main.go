@@ -7,6 +7,7 @@ import (
 
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/tylern91/obsidian-mcp-server/internal/config"
+	"github.com/tylern91/obsidian-mcp-server/internal/periodic"
 	"github.com/tylern91/obsidian-mcp-server/internal/search"
 	"github.com/tylern91/obsidian-mcp-server/internal/tools"
 	"github.com/tylern91/obsidian-mcp-server/internal/vault"
@@ -38,6 +39,7 @@ func run(args []string) error {
 	filter := vault.NewPathFilter(cfg.IgnorePatterns, cfg.Extensions)
 	vaultSvc := vault.New(cfg.VaultPath, filter)
 	searchSvc := search.New(vaultSvc)
+	periodicSvc := periodic.New(cfg.VaultPath)
 
 	s := mcpserver.NewMCPServer(
 		"obsidian-mcp",
@@ -48,6 +50,7 @@ func run(args []string) error {
 	tools.RegisterAll(s, tools.Deps{
 		Vault:       vaultSvc,
 		Search:      searchSvc,
+		Periodic:    periodicSvc,
 		PrettyPrint: cfg.PrettyPrint,
 		MaxBatch:    cfg.MaxBatch,
 		MaxResults:  cfg.MaxResults,
