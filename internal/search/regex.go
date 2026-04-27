@@ -5,13 +5,14 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
 
 const (
-	defaultRegexLimit           = 20
-	defaultMaxMatchesPerFile    = 5
+	defaultRegexLimit        = 20
+	defaultMaxMatchesPerFile = 5
 )
 
 // RegexOptions controls behaviour of SearchRegex.
@@ -50,21 +51,29 @@ type RegexResult struct {
 // globToRegex converts a filepath.Match-style glob pattern into an anchored RE2
 // regex string. The rules are:
 //
-//	**  → .*         (matches across directory separators)
-//	*   → [^/]*      (matches within a single directory level)
-//	?   → [^/]       (matches one character that is not a separator)
+//	**/  → (.*/)?    (matches zero or more path segments, including none)
+//	**   → .*        (matches everything, including path separators)
+//	*    → [^/]*     (matches within a single directory level)
+//	?    → [^/]      (matches one character that is not a separator)
 //	all other regex metacharacters are escaped
 func globToRegex(glob string) string {
 	var sb strings.Builder
 	sb.WriteString("^")
 
-	// We need to handle "**" before "*", so we walk rune by rune.
+	// We need to handle "**/" before "**" before "*", so we walk byte by byte.
 	i := 0
 	for i < len(glob) {
 		c := glob[i]
 		switch c {
 		case '*':
 			if i+1 < len(glob) && glob[i+1] == '*' {
+				// Check for "**/" — zero or more directory segments.
+				if i+2 < len(glob) && glob[i+2] == '/' {
+					sb.WriteString("(.*/)?")
+					i += 3
+					continue
+				}
+				// "**" without following "/" — matches everything.
 				sb.WriteString(".*")
 				i += 2
 				continue
@@ -120,7 +129,7 @@ func (s *Service) SearchRegex(ctx context.Context, opts RegexOptions) ([]RegexRe
 
 	walkErr := s.vault.WalkNotes(ctx, func(rel, abs string) error {
 		if len(results) >= limit {
-			return nil
+			return filepath.SkipAll
 		}
 
 		var result *RegexResult

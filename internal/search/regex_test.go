@@ -172,6 +172,52 @@ func TestSearchRegex(t *testing.T) {
 				"file %q has %d matches, expected <= 2", r.Path, len(r.Matches))
 		}
 	})
+
+	t.Run("zero-value Limit and MaxMatchesPerFile use defaults", func(t *testing.T) {
+		t.Parallel()
+
+		// Limit=0 and MaxMatchesPerFile=0 should apply defaults (20 and 5),
+		// not cap results at zero.
+		results, err := svc.SearchRegex(context.Background(), RegexOptions{
+			Pattern:           `\S`, // matches any non-whitespace line — many files qualify
+			Scope:             "content",
+			Limit:             0,
+			MaxMatchesPerFile: 0,
+		})
+		require.NoError(t, err)
+		assert.Greater(t, len(results), 0, "zero Limit should use default (20), not cap at 0")
+
+		for _, r := range results {
+			assert.LessOrEqual(t, len(r.Matches), defaultMaxMatchesPerFile,
+				"file %q has %d matches, expected <= %d (default MaxMatchesPerFile)",
+				r.Path, len(r.Matches), defaultMaxMatchesPerFile)
+		}
+	})
+
+	t.Run("both scope path-only hit has empty matches", func(t *testing.T) {
+		t.Parallel()
+
+		// "Daily" (capital D) appears in the path "Daily Notes/2024-01-15.md"
+		// but not in the file content (content has lowercase "daily").
+		// In scope=both the file should appear with an empty Matches slice.
+		results, err := svc.SearchRegex(context.Background(), RegexOptions{
+			Pattern: `Daily`,
+			Scope:   "both",
+			Limit:   50,
+		})
+		require.NoError(t, err)
+
+		var found bool
+		for _, r := range results {
+			if r.Path == "Daily Notes/2024-01-15.md" {
+				found = true
+				assert.Empty(t, r.Matches,
+					"path-only hit in both scope should have no content matches")
+				break
+			}
+		}
+		assert.True(t, found, "Daily Notes/2024-01-15.md should appear via path hit in both scope")
+	})
 }
 
 // TestGlobToRegex verifies the glob-to-regex conversion rules.
@@ -192,9 +238,9 @@ func TestGlobToRegex(t *testing.T) {
 		},
 		{
 			glob:    "**/*.md",
-			pattern: `^.*/[^/]*\.md$`,
-			matches: []string{"Notes/simple.md", "a/b/c/foo.md"},
-			noMatch: []string{"simple.md"}, // no directory separator before *.md
+			pattern: `^(.*/)?[^/]*\.md$`,
+			matches: []string{"simple.md", "Notes/simple.md", "a/b/c/foo.md"},
+			noMatch: []string{"Notes/simple.txt"},
 		},
 		{
 			glob:    "*.md",
@@ -207,6 +253,11 @@ func TestGlobToRegex(t *testing.T) {
 			pattern: `^Notes/[^/]\.md$`,
 			matches: []string{"Notes/a.md"},
 			noMatch: []string{"Notes/ab.md", "Notes/simple.md"},
+		},
+		{
+			glob:    "**",
+			pattern: `^.*$`,
+			matches: []string{"anything", "Notes/simple.md", "a/b/c/d.md"},
 		},
 	}
 
