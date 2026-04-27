@@ -89,8 +89,8 @@ func TestStripCodeFences(t *testing.T) {
 			wantNotSubstring: "code here",
 		},
 		{
-			name:      "longer opener requires longer closer",
-			input:     "````\nblock\n````",
+			name:             "longer opener requires longer closer",
+			input:            "````\nblock\n````",
 			wantSubstring:    " ",
 			wantNotSubstring: "block",
 		},

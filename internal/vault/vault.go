@@ -362,3 +362,54 @@ func (s *Service) ListDirectory(ctx context.Context, path string) ([]DirEntry, e
 
 	return results, nil
 }
+
+// NoteInfo holds lightweight metadata for a note (no content returned to caller).
+type NoteInfo struct {
+	Path      string // vault-relative path, forward slashes
+	Size      int64
+	ModTime   time.Time
+	Title     string // frontmatter "title" key, or filename stem as fallback
+	TagCount  int    // number of unique tags from ListTags
+	LinkCount int    // number of unique link targets from ExtractLinks
+}
+
+// StatNote returns NoteInfo for the given vault-relative path.
+// It reads the full note content (needed for tags and links) but does NOT
+// return the content itself.
+func (s *Service) StatNote(ctx context.Context, path string) (*NoteInfo, error) {
+	note, err := s.ReadNote(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+
+	// Title: try frontmatter "title" key first.
+	title := ""
+	fm, _, fmErr := s.GetFrontmatter(ctx, path)
+	if fmErr == nil {
+		if v, ok := fm["title"]; ok {
+			if s, ok := v.(string); ok {
+				title = s
+			}
+		}
+	}
+	// Fall back to filename stem.
+	if title == "" {
+		base := filepath.Base(path)
+		title = strings.TrimSuffix(base, filepath.Ext(base))
+	}
+
+	// Tags.
+	tags, _ := s.ListTags(ctx, path)
+
+	// Links: use note content already read.
+	links := ExtractLinks(note.Content)
+
+	return &NoteInfo{
+		Path:      path,
+		Size:      note.Size,
+		ModTime:   note.ModTime,
+		Title:     title,
+		TagCount:  len(tags),
+		LinkCount: len(links),
+	}, nil
+}

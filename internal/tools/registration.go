@@ -28,6 +28,8 @@ type VaultService interface {
 	PatchNote(ctx context.Context, path string, p vault.PatchOp) error
 	DeleteNote(ctx context.Context, path, confirm string) error
 	MoveNote(ctx context.Context, src, dst, confirm string) error
+
+	StatNote(ctx context.Context, path string) (*vault.NoteInfo, error)
 }
 
 // SearchService defines the search operations that tool handlers depend on.
@@ -61,4 +63,6 @@ func RegisterAll(s *server.MCPServer, deps Deps) {
 	registerMoveNote(s, deps)
 	registerSearchNotes(s, deps)
 	registerSearchRegex(s, deps)
+	registerReadMultipleNotes(s, deps)
+	registerGetNotesInfo(s, deps)
 }

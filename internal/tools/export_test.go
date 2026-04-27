@@ -15,3 +15,5 @@ var DeleteNoteHandler = func(deps Deps) server.ToolHandlerFunc { return deleteNo
 var MoveNoteHandler = func(deps Deps) server.ToolHandlerFunc { return moveNoteHandler(deps) }
 var SearchNotesHandler = func(deps Deps) server.ToolHandlerFunc { return searchNotesHandler(deps) }
 var SearchRegexHandler = func(deps Deps) server.ToolHandlerFunc { return searchRegexHandler(deps) }
+var ReadMultipleNotesHandler = func(deps Deps) server.ToolHandlerFunc { return readMultipleNotesHandler(deps) }
+var GetNotesInfoHandler = func(deps Deps) server.ToolHandlerFunc { return getNotesInfoHandler(deps) }

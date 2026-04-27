@@ -103,11 +103,11 @@ func TestTruncate(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		s         string
-		maxRunes  int
-		wantS     string
-		wantCut   bool
+		name     string
+		s        string
+		maxRunes int
+		wantS    string
+		wantCut  bool
 	}{
 		{
 			name:     "empty string no cut",

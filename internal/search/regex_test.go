@@ -122,7 +122,7 @@ func TestSearchRegex(t *testing.T) {
 		t.Parallel()
 
 		results, err := svc.SearchRegex(context.Background(), RegexOptions{
-			Pattern: ".",    // matches every non-empty line; many files will have content hits
+			Pattern: ".", // matches every non-empty line; many files will have content hits
 			Scope:   "content",
 			Limit:   1,
 		})

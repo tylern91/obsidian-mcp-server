@@ -102,7 +102,7 @@ func isFenceCloser(line string, fenceChar byte, fenceLen int) bool {
 }
 
 // stripInlineCode replaces single-backtick inline code spans with a space.
-// Multi-backtick spans (`` `code` ``, etc.) are passed through unchanged.
+// Multi-backtick spans (“ `code` “, etc.) are passed through unchanged.
 func stripInlineCode(line string) string {
 	if !strings.Contains(line, "`") {
 		return line
