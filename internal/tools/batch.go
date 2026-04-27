@@ -12,6 +12,7 @@ import (
 )
 
 const defaultMaxBatch = 10
+const defaultHeadChars = 200
 
 func registerReadMultipleNotes(s *server.MCPServer, deps Deps) {
 	tool := mcp.NewTool("read_multiple_notes",
@@ -48,7 +49,7 @@ func readMultipleNotesHandler(deps Deps) server.ToolHandlerFunc {
 		summary := req.GetBool("summary", false)
 
 		headCharsStr := req.GetString("headChars", "200")
-		headChars := 200
+		headChars := defaultHeadChars
 		if n, parseErr := strconv.Atoi(headCharsStr); parseErr == nil && n > 0 {
 			headChars = n
 		}
@@ -147,8 +148,10 @@ func getNotesInfoHandler(deps Deps) server.ToolHandlerFunc {
 			maxBatch = defaultMaxBatch
 		}
 
+		truncated := false
 		if len(paths) > maxBatch {
 			paths = paths[:maxBatch]
+			truncated = true
 		}
 
 		type infoEntry struct {
@@ -181,13 +184,15 @@ func getNotesInfoHandler(deps Deps) server.ToolHandlerFunc {
 		}
 
 		type infoResponse struct {
-			Notes []infoEntry `json:"notes"`
-			Count int         `json:"count"`
+			Notes     []infoEntry `json:"notes"`
+			Count     int         `json:"count"`
+			Truncated bool        `json:"truncated"`
 		}
 
 		result, err := response.FormatJSON(infoResponse{
-			Notes: notes,
-			Count: len(notes),
+			Notes:     notes,
+			Count:     len(notes),
+			Truncated: truncated,
 		}, deps.PrettyPrint)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil

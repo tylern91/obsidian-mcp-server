@@ -376,20 +376,29 @@ type NoteInfo struct {
 // StatNote returns NoteInfo for the given vault-relative path.
 // It reads the full note content (needed for tags and links) but does NOT
 // return the content itself.
+//
+// ReadNote is called exactly once; frontmatter and tags are extracted from
+// the already-read content so there is no second I/O round-trip.
 func (s *Service) StatNote(ctx context.Context, path string) (*NoteInfo, error) {
 	note, err := s.ReadNote(ctx, path)
 	if err != nil {
 		return nil, err
 	}
 
-	// Title: try frontmatter "title" key first.
+	// Parse frontmatter directly from the already-read content (no second read).
+	rawFM, body, hasFM := SplitFrontmatter(note.Content)
+
+	// Parse frontmatter once; extract title and tags from the same map.
 	title := ""
-	fm, _, fmErr := s.GetFrontmatter(ctx, path)
-	if fmErr == nil {
-		if v, ok := fm["title"]; ok {
-			if s, ok := v.(string); ok {
-				title = s
+	var fmTags []string
+	if hasFM {
+		if fm, fmErr := ParseFrontmatter(rawFM); fmErr == nil {
+			if v, ok := fm["title"]; ok {
+				if titleStr, ok := v.(string); ok {
+					title = titleStr
+				}
 			}
+			fmTags = ExtractFrontmatterTags(fm)
 		}
 	}
 	// Fall back to filename stem.
@@ -397,11 +406,25 @@ func (s *Service) StatNote(ctx context.Context, path string) (*NoteInfo, error) 
 		base := filepath.Base(path)
 		title = strings.TrimSuffix(base, filepath.Ext(base))
 	}
+	inlineTags := ExtractInlineTags(body)
 
-	// Tags.
-	tags, _ := s.ListTags(ctx, path)
+	// Merge: frontmatter tags first, then inline-only tags.
+	seen := make(map[string]struct{}, len(fmTags)+len(inlineTags))
+	tags := make([]string, 0, len(fmTags)+len(inlineTags))
+	for _, t := range fmTags {
+		if _, dup := seen[t]; !dup {
+			seen[t] = struct{}{}
+			tags = append(tags, t)
+		}
+	}
+	for _, t := range inlineTags {
+		if _, dup := seen[t]; !dup {
+			seen[t] = struct{}{}
+			tags = append(tags, t)
+		}
+	}
 
-	// Links: use note content already read.
+	// Links: extract from the full note content (wikilinks span the whole file).
 	links := ExtractLinks(note.Content)
 
 	return &NoteInfo{

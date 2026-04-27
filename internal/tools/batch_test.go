@@ -456,3 +456,79 @@ func TestGetNotesInfoHandler_NonExistentPath(t *testing.T) {
 		t.Error("expected error field to be set for missing note")
 	}
 }
+
+func TestGetNotesInfoHandler_EmptyPaths(t *testing.T) {
+	deps := testDeps(t)
+	handler := tools.GetNotesInfoHandler(deps)
+
+	paths, _ := json.Marshal([]string{})
+	result, err := handler(context.Background(), makeRequest("paths", string(paths)))
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected error result: %v", result.Content)
+	}
+
+	text := extractResultText(t, result)
+	var resp struct {
+		Notes     []json.RawMessage `json:"notes"`
+		Count     int               `json:"count"`
+		Truncated bool              `json:"truncated"`
+	}
+	if err := json.Unmarshal([]byte(text), &resp); err != nil {
+		t.Fatalf("unmarshal: %v\n%s", err, text)
+	}
+	if resp.Count != 0 {
+		t.Errorf("count = %d, want 0", resp.Count)
+	}
+	if len(resp.Notes) != 0 {
+		t.Errorf("notes len = %d, want 0", len(resp.Notes))
+	}
+	if resp.Truncated {
+		t.Error("truncated should be false for empty paths")
+	}
+}
+
+func TestGetNotesInfoHandler_BatchCap(t *testing.T) {
+	deps := batchDeps(t) // MaxBatch = 3
+	handler := tools.GetNotesInfoHandler(deps)
+
+	// 5 paths, but MaxBatch = 3 → truncated
+	p := []string{
+		"Notes/simple.md",
+		"Notes/with-fm.md",
+		"Notes/tagged.md",
+		"Notes/simple.md",
+		"Notes/with-fm.md",
+	}
+	paths, _ := json.Marshal(p)
+	result, err := handler(context.Background(), makeRequest("paths", string(paths)))
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected error result: %v", result.Content)
+	}
+
+	text := extractResultText(t, result)
+	var resp struct {
+		Notes []struct {
+			Path string `json:"path"`
+		} `json:"notes"`
+		Count     int  `json:"count"`
+		Truncated bool `json:"truncated"`
+	}
+	if err := json.Unmarshal([]byte(text), &resp); err != nil {
+		t.Fatalf("unmarshal: %v\n%s", err, text)
+	}
+	if !resp.Truncated {
+		t.Error("expected truncated=true when more paths than MaxBatch")
+	}
+	if resp.Count != 3 {
+		t.Errorf("count = %d, want 3", resp.Count)
+	}
+	if len(resp.Notes) != 3 {
+		t.Errorf("notes len = %d, want 3", len(resp.Notes))
+	}
+}
