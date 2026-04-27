@@ -96,3 +96,167 @@ func TestFormatJSON_ErrorOnUnmarshalable(t *testing.T) {
 		t.Error("expected error for non-JSON-encodable value (math.Inf), got nil")
 	}
 }
+
+// ── Truncate ─────────────────────────────────────────────────────────────────
+
+func TestTruncate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		s         string
+		maxRunes  int
+		wantS     string
+		wantCut   bool
+	}{
+		{
+			name:     "empty string no cut",
+			s:        "",
+			maxRunes: 10,
+			wantS:    "",
+			wantCut:  false,
+		},
+		{
+			name:     "exactly maxRunes no cut",
+			s:        "hello",
+			maxRunes: 5,
+			wantS:    "hello",
+			wantCut:  false,
+		},
+		{
+			name:     "one over cuts",
+			s:        "hello!",
+			maxRunes: 5,
+			wantS:    "hello",
+			wantCut:  true,
+		},
+		{
+			name:     "ASCII well under no cut",
+			s:        "hi",
+			maxRunes: 10,
+			wantS:    "hi",
+			wantCut:  false,
+		},
+		{
+			name:     "multibyte CJK cut on rune boundary",
+			s:        "你好世界",
+			maxRunes: 2,
+			wantS:    "你好",
+			wantCut:  true,
+		},
+		{
+			name:     "emoji single rune cut",
+			s:        "🎉abc",
+			maxRunes: 1,
+			wantS:    "🎉",
+			wantCut:  true,
+		},
+		{
+			name:     "emoji no cut",
+			s:        "🎉",
+			maxRunes: 5,
+			wantS:    "🎉",
+			wantCut:  false,
+		},
+		{
+			name:     "CRLF pair not split — cut before \\r",
+			s:        "ab\r\ncd",
+			maxRunes: 3, // runes: a b \r \n c d — cut at 3 would separate \r from \n
+			wantS:    "ab",
+			wantCut:  true,
+		},
+		{
+			name:     "CRLF pair not split — both included when cut after \\n",
+			s:        "ab\r\ncd",
+			maxRunes: 4, // runes: a b \r \n → include both \r and \n
+			wantS:    "ab\r\n",
+			wantCut:  true,
+		},
+		{
+			name:     "CRLF no split needed",
+			s:        "ab\r\ncd",
+			maxRunes: 10,
+			wantS:    "ab\r\ncd",
+			wantCut:  false,
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			gotS, gotCut := response.Truncate(tc.s, tc.maxRunes)
+			if gotS != tc.wantS || gotCut != tc.wantCut {
+				t.Errorf("Truncate(%q, %d) = (%q, %v), want (%q, %v)",
+					tc.s, tc.maxRunes, gotS, gotCut, tc.wantS, tc.wantCut)
+			}
+		})
+	}
+}
+
+// ── HeadRunes ────────────────────────────────────────────────────────────────
+
+func TestHeadRunes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		s    string
+		n    int
+		want string
+	}{
+		{
+			name: "empty string",
+			s:    "",
+			n:    10,
+			want: "",
+		},
+		{
+			name: "n larger than length",
+			s:    "hello",
+			n:    20,
+			want: "hello",
+		},
+		{
+			name: "exactly n runes",
+			s:    "hello",
+			n:    5,
+			want: "hello",
+		},
+		{
+			name: "ASCII truncated",
+			s:    "hello world",
+			n:    5,
+			want: "hello",
+		},
+		{
+			name: "CJK multibyte truncated",
+			s:    "你好世界",
+			n:    3,
+			want: "你好世",
+		},
+		{
+			name: "emoji single rune",
+			s:    "🎉🎊🎈",
+			n:    2,
+			want: "🎉🎊",
+		},
+		{
+			name: "n zero returns empty",
+			s:    "hello",
+			n:    0,
+			want: "",
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := response.HeadRunes(tc.s, tc.n)
+			if got != tc.want {
+				t.Errorf("HeadRunes(%q, %d) = %q, want %q", tc.s, tc.n, got, tc.want)
+			}
+		})
+	}
+}

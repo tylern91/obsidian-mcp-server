@@ -49,6 +49,8 @@ func run(args []string) error {
 		Vault:       vaultSvc,
 		Search:      searchSvc,
 		PrettyPrint: cfg.PrettyPrint,
+		MaxBatch:    cfg.MaxBatch,
+		MaxResults:  cfg.MaxResults,
 	})
 
 	slog.Info("tools registered, serving stdio")

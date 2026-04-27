@@ -42,6 +42,8 @@ type Deps struct {
 	Vault       VaultService
 	Search      SearchService
 	PrettyPrint bool // global default for JSON formatting
+	MaxBatch    int  // maximum number of files per batch operation
+	MaxResults  int  // maximum number of search results
 }
 
 // RegisterAll registers all MCP tools with the server.
