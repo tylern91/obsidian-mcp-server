@@ -17,3 +17,9 @@ var SearchNotesHandler = func(deps Deps) server.ToolHandlerFunc { return searchN
 var SearchRegexHandler = func(deps Deps) server.ToolHandlerFunc { return searchRegexHandler(deps) }
 var ReadMultipleNotesHandler = func(deps Deps) server.ToolHandlerFunc { return readMultipleNotesHandler(deps) }
 var GetNotesInfoHandler = func(deps Deps) server.ToolHandlerFunc { return getNotesInfoHandler(deps) }
+var VaultStatsHandler = func(deps Deps) server.ToolHandlerFunc { return getVaultStatsHandler(deps) }
+var RecentChangesHandler = func(deps Deps) server.ToolHandlerFunc { return recentChangesHandler(deps) }
+var GetPeriodicNoteHandler = func(deps Deps) server.ToolHandlerFunc { return getPeriodicNoteHandler(deps) }
+var GetRecentPeriodicNotesHandler = func(deps Deps) server.ToolHandlerFunc {
+	return getRecentPeriodicNotesHandler(deps)
+}

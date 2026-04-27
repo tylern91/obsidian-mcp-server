@@ -3,12 +3,15 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"sort"
 	"strconv"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/tylern91/obsidian-mcp-server/internal/response"
+	"github.com/tylern91/obsidian-mcp-server/internal/vault"
 )
 
 const defaultMaxBatch = 10
@@ -199,4 +202,142 @@ func getNotesInfoHandler(deps Deps) server.ToolHandlerFunc {
 		}
 		return mcp.NewToolResultText(result), nil
 	}
+}
+
+func registerGetVaultStats(s *server.MCPServer, deps Deps) {
+	tool := mcp.NewTool("get_vault_stats",
+		mcp.WithDescription("Get aggregate statistics about the entire vault"),
+		mcp.WithBoolean("includeTokenCounts",
+			mcp.Description("When true, also sum token counts across all notes (default: false)"),
+		),
+		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithDestructiveHintAnnotation(false),
+	)
+	s.AddTool(tool, getVaultStatsHandler(deps))
+}
+
+func getVaultStatsHandler(deps Deps) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		includeTokenCounts := req.GetBool("includeTokenCounts", false)
+
+		// Gather tag map (unique tag → count across all notes).
+		tagMap, err := deps.Vault.AggregateTags(ctx)
+		if err != nil {
+			return mcp.NewToolResultError("AggregateTags: " + err.Error()), nil
+		}
+
+		type noteRef struct {
+			Path    string `json:"path"`
+			ModTime string `json:"modTime"`
+		}
+
+		var (
+			noteCount  int
+			totalBytes int64
+			totalLinks int
+			totalToks  int
+
+			oldest *noteRef
+			newest *noteRef
+		)
+
+		walkErr := deps.Vault.WalkNotes(ctx, func(rel, abs string) error {
+			data, readErr := os.ReadFile(abs)
+			if readErr != nil {
+				// Skip unreadable files silently.
+				return nil
+			}
+
+			info, statErr := os.Stat(abs)
+			if statErr != nil {
+				return nil
+			}
+
+			noteCount++
+			totalBytes += info.Size()
+			content := string(data)
+
+			links := vault.ExtractLinks(content)
+			totalLinks += len(links)
+
+			if includeTokenCounts {
+				totalToks += response.CountTokens(content)
+			}
+
+			mt := info.ModTime()
+			ref := &noteRef{
+				Path:    rel,
+				ModTime: mt.UTC().Format(time.RFC3339),
+			}
+
+			if oldest == nil || mt.Before(parseModTime(oldest.ModTime)) {
+				oldest = ref
+			}
+			if newest == nil || mt.After(parseModTime(newest.ModTime)) {
+				newest = ref
+			}
+
+			return nil
+		})
+		if walkErr != nil {
+			return mcp.NewToolResultError("WalkNotes: " + walkErr.Error()), nil
+		}
+
+		// Build top-20 tags sorted descending by count, then alphabetically.
+		type tagEntry struct {
+			Tag   string `json:"tag"`
+			Count int    `json:"count"`
+		}
+		topTags := make([]tagEntry, 0, len(tagMap))
+		for tag, count := range tagMap {
+			topTags = append(topTags, tagEntry{Tag: tag, Count: count})
+		}
+		sort.Slice(topTags, func(i, j int) bool {
+			if topTags[i].Count != topTags[j].Count {
+				return topTags[i].Count > topTags[j].Count
+			}
+			return topTags[i].Tag < topTags[j].Tag
+		})
+		if len(topTags) > 20 {
+			topTags = topTags[:20]
+		}
+
+		type vaultStatsResponse struct {
+			NoteCount   int        `json:"noteCount"`
+			TotalBytes  int64      `json:"totalBytes"`
+			TotalLinks  int        `json:"totalLinks"`
+			TotalTags   int        `json:"totalTags"`
+			TopTags     []tagEntry `json:"topTags"`
+			OldestNote  *noteRef   `json:"oldestNote,omitempty"`
+			NewestNote  *noteRef   `json:"newestNote,omitempty"`
+			TotalTokens *int       `json:"totalTokens,omitempty"`
+			VaultRoot   string     `json:"vaultRoot"`
+		}
+
+		statsResp := vaultStatsResponse{
+			NoteCount:  noteCount,
+			TotalBytes: totalBytes,
+			TotalLinks: totalLinks,
+			TotalTags:  len(tagMap),
+			TopTags:    topTags,
+			OldestNote: oldest,
+			NewestNote: newest,
+			VaultRoot:  deps.Vault.Root(),
+		}
+		if includeTokenCounts {
+			statsResp.TotalTokens = &totalToks
+		}
+
+		out, err := response.FormatJSON(statsResp, deps.PrettyPrint)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return mcp.NewToolResultText(out), nil
+	}
+}
+
+// parseModTime parses an RFC3339 time string, returning zero time on failure.
+func parseModTime(s string) time.Time {
+	t, _ := time.Parse(time.RFC3339, s)
+	return t
 }

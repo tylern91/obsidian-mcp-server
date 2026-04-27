@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"time"
 
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/tylern91/obsidian-mcp-server/internal/search"
@@ -30,6 +31,9 @@ type VaultService interface {
 	MoveNote(ctx context.Context, src, dst, confirm string) error
 
 	StatNote(ctx context.Context, path string) (*vault.NoteInfo, error)
+
+	WalkNotes(ctx context.Context, fn func(rel, abs string) error) error
+	Root() string
 }
 
 // SearchService defines the search operations that tool handlers depend on.
@@ -39,10 +43,18 @@ type SearchService interface {
 	SearchRegex(ctx context.Context, opts search.RegexOptions) ([]search.RegexResult, error)
 }
 
+// PeriodicService defines the periodic note operations that tool handlers depend on.
+// Satisfied by *periodic.Service; enables mock-based unit testing.
+type PeriodicService interface {
+	Resolve(granularity string, offset int) (string, error)
+	RecentDates(granularity string, count int) ([]time.Time, error)
+}
+
 // Deps holds the dependencies injected into all tool handlers.
 type Deps struct {
 	Vault       VaultService
 	Search      SearchService
+	Periodic    PeriodicService
 	PrettyPrint bool // global default for JSON formatting
 	MaxBatch    int  // maximum number of files per batch operation
 	MaxResults  int  // maximum number of search results
@@ -65,4 +77,8 @@ func RegisterAll(s *server.MCPServer, deps Deps) {
 	registerSearchRegex(s, deps)
 	registerReadMultipleNotes(s, deps)
 	registerGetNotesInfo(s, deps)
+	registerGetVaultStats(s, deps)
+	registerGetRecentChanges(s, deps)
+	registerGetPeriodicNote(s, deps)
+	registerGetRecentPeriodicNotes(s, deps)
 }
