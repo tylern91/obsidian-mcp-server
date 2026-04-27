@@ -52,11 +52,11 @@ func getPeriodicNoteHandler(deps Deps) server.ToolHandlerFunc {
 		if readErr != nil {
 			if createIfMissing {
 				if writeErr := deps.Vault.WriteNote(ctx, resolvedPath, "", vault.WriteMode("overwrite")); writeErr != nil {
-					return mcp.NewToolResultError("create periodic note: "+writeErr.Error()), nil
+					return mcp.NewToolResultError("create periodic note: " + writeErr.Error()), nil
 				}
 				note, readErr = deps.Vault.ReadNote(ctx, resolvedPath)
 				if readErr != nil {
-					return mcp.NewToolResultError("read after create: "+readErr.Error()), nil
+					return mcp.NewToolResultError("read after create: " + readErr.Error()), nil
 				}
 			} else {
 				type notFoundResponse struct {
@@ -164,7 +164,7 @@ func getRecentPeriodicNotesHandler(deps Deps) server.ToolHandlerFunc {
 			// Resolve path for offset -i (i=0 is current, i=1 is previous, etc.)
 			resolvedPath, resolveErr := deps.Periodic.Resolve(granularity, -i)
 			if resolveErr != nil {
-				return mcp.NewToolResultError("resolve: "+resolveErr.Error()), nil
+				return mcp.NewToolResultError("resolve: " + resolveErr.Error()), nil
 			}
 
 			entry := noteEntry{

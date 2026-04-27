@@ -12,7 +12,7 @@ import (
 // GranularityConfig holds config for one periodic note granularity.
 type GranularityConfig struct {
 	Enabled  bool   `json:"enabled"`
-	Format   string `json:"format"`   // moment.js format string
+	Format   string `json:"format"` // moment.js format string
 	Folder   string `json:"folder"`
 	Template string `json:"template"`
 }

@@ -549,16 +549,16 @@ func TestGetVaultStatsHandler_Basic(t *testing.T) {
 
 	text := extractResultText(t, result)
 	var resp struct {
-		NoteCount   int    `json:"noteCount"`
-		TotalBytes  int64  `json:"totalBytes"`
-		TotalLinks  int    `json:"totalLinks"`
-		TotalTags   int    `json:"totalTags"`
-		TopTags     []any  `json:"topTags"`
-		OldestNote  *struct {
+		NoteCount  int   `json:"noteCount"`
+		TotalBytes int64 `json:"totalBytes"`
+		TotalLinks int   `json:"totalLinks"`
+		TotalTags  int   `json:"totalTags"`
+		TopTags    []any `json:"topTags"`
+		OldestNote *struct {
 			Path    string `json:"path"`
 			ModTime string `json:"modTime"`
 		} `json:"oldestNote"`
-		NewestNote  *struct {
+		NewestNote *struct {
 			Path    string `json:"path"`
 			ModTime string `json:"modTime"`
 		} `json:"newestNote"`
