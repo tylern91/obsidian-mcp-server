@@ -532,3 +532,138 @@ func TestGetNotesInfoHandler_BatchCap(t *testing.T) {
 		t.Errorf("notes len = %d, want 3", len(resp.Notes))
 	}
 }
+
+// ─── get_vault_stats ────────────────────────────────────────────────────────
+
+func TestGetVaultStatsHandler_Basic(t *testing.T) {
+	deps := testDeps(t)
+	handler := tools.VaultStatsHandler(deps)
+
+	result, err := handler(context.Background(), makeRequestKV())
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected error result: %v", result.Content)
+	}
+
+	text := extractResultText(t, result)
+	var resp struct {
+		NoteCount   int    `json:"noteCount"`
+		TotalBytes  int64  `json:"totalBytes"`
+		TotalLinks  int    `json:"totalLinks"`
+		TotalTags   int    `json:"totalTags"`
+		TopTags     []any  `json:"topTags"`
+		OldestNote  *struct {
+			Path    string `json:"path"`
+			ModTime string `json:"modTime"`
+		} `json:"oldestNote"`
+		NewestNote  *struct {
+			Path    string `json:"path"`
+			ModTime string `json:"modTime"`
+		} `json:"newestNote"`
+		TotalTokens *int   `json:"totalTokens"`
+		VaultRoot   string `json:"vaultRoot"`
+	}
+	if err := json.Unmarshal([]byte(text), &resp); err != nil {
+		t.Fatalf("unmarshal: %v\n%s", err, text)
+	}
+	if resp.NoteCount <= 0 {
+		t.Errorf("noteCount = %d, want > 0", resp.NoteCount)
+	}
+	if resp.TotalBytes <= 0 {
+		t.Errorf("totalBytes = %d, want > 0", resp.TotalBytes)
+	}
+	if resp.TotalLinks < 0 {
+		t.Errorf("totalLinks = %d, want >= 0", resp.TotalLinks)
+	}
+	if resp.TotalTags < 0 {
+		t.Errorf("totalTags = %d, want >= 0", resp.TotalTags)
+	}
+	if resp.VaultRoot == "" {
+		t.Error("vaultRoot should be set")
+	}
+	if resp.OldestNote == nil {
+		t.Error("oldestNote should be set")
+	}
+	if resp.NewestNote == nil {
+		t.Error("newestNote should be set")
+	}
+	// totalTokens should be absent when includeTokenCounts=false
+	if resp.TotalTokens != nil {
+		t.Errorf("totalTokens should be absent (nil) when includeTokenCounts=false, got %d", *resp.TotalTokens)
+	}
+}
+
+func TestGetVaultStatsHandler_WithTokenCounts(t *testing.T) {
+	deps := testDeps(t)
+	handler := tools.VaultStatsHandler(deps)
+
+	result, err := handler(context.Background(), makeRequestKV("includeTokenCounts", true))
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected error result: %v", result.Content)
+	}
+
+	text := extractResultText(t, result)
+	var resp struct {
+		TotalTokens *int `json:"totalTokens"`
+		NoteCount   int  `json:"noteCount"`
+	}
+	if err := json.Unmarshal([]byte(text), &resp); err != nil {
+		t.Fatalf("unmarshal: %v\n%s", err, text)
+	}
+	if resp.TotalTokens == nil {
+		t.Fatal("totalTokens should be present when includeTokenCounts=true")
+	}
+	if *resp.TotalTokens <= 0 {
+		t.Errorf("totalTokens = %d, want > 0", *resp.TotalTokens)
+	}
+}
+
+func TestGetVaultStatsHandler_TopTags(t *testing.T) {
+	deps := testDeps(t)
+	handler := tools.VaultStatsHandler(deps)
+
+	result, err := handler(context.Background(), makeRequestKV())
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected error result: %v", result.Content)
+	}
+
+	text := extractResultText(t, result)
+	var resp struct {
+		TotalTags int `json:"totalTags"`
+		TopTags   []struct {
+			Tag   string `json:"tag"`
+			Count int    `json:"count"`
+		} `json:"topTags"`
+	}
+	if err := json.Unmarshal([]byte(text), &resp); err != nil {
+		t.Fatalf("unmarshal: %v\n%s", err, text)
+	}
+	// topTags should be a valid list (possibly empty if vault has no tags)
+	if resp.TopTags == nil {
+		t.Error("topTags should be a list (not null)")
+	}
+	if len(resp.TopTags) > 20 {
+		t.Errorf("topTags len = %d, want <= 20", len(resp.TopTags))
+	}
+	// If there are tags, each entry should have tag and count > 0
+	for i, tt := range resp.TopTags {
+		if tt.Tag == "" {
+			t.Errorf("topTags[%d].tag is empty", i)
+		}
+		if tt.Count <= 0 {
+			t.Errorf("topTags[%d].count = %d, want > 0", i, tt.Count)
+		}
+	}
+	// totalTags should match the number of unique tags
+	if resp.TotalTags < 0 {
+		t.Errorf("totalTags = %d, want >= 0", resp.TotalTags)
+	}
+}
