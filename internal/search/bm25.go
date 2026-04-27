@@ -1,7 +1,6 @@
 package search
 
 import (
-	"bufio"
 	"context"
 	"math"
 	"os"
@@ -19,8 +18,12 @@ const (
 	bm25K1 = 1.2
 	bm25B  = 0.75
 
-	defaultBM25Limit        = 20
-	defaultBM25MaxMatches   = 3
+	defaultBM25Limit      = 20
+	defaultBM25MaxMatches = 3
+
+	// phraseKeySep is the separator used in phrase bigram keys; chosen to
+	// avoid collision with real token characters (letters/digits only).
+	phraseKeySep = "\x00"
 )
 
 // BM25Options controls behaviour of SearchBM25.
@@ -83,12 +86,6 @@ func matchesPathScope(rel, scope string) bool {
 	if matched {
 		return true
 	}
-	// Also try matching the basename alone (supports globs like "Search/*").
-	base := filepath.Base(rel)
-	dir := filepath.Dir(rel)
-	// Re-assemble and try the original pattern against the full rel path.
-	_ = base
-	_ = dir
 
 	// Convert the glob to a regex for richer matching (handles ** etc).
 	reStr := globToRegex(scope)
@@ -99,8 +96,9 @@ func matchesPathScope(rel, scope string) bool {
 	return re.MatchString(rel)
 }
 
-// buildTerms tokenizes the query into individual terms plus, for multi-word
-// queries, a concatenated phrase term (bonus for exact adjacency).
+// buildTerms tokenizes the query into individual terms plus, for 2-token
+// queries, a consecutive-bigram phrase key ("term0\x00term1") that is scored
+// separately in BM25 to reward tight co-occurrence.
 // Returns the canonical form (lowercased when CaseSensitive=false).
 func buildTerms(query string, caseSensitive bool) []string {
 	if !caseSensitive {
@@ -118,11 +116,14 @@ func buildTerms(query string, caseSensitive bool) []string {
 			terms = append(terms, t)
 		}
 	}
-	// Phrase bonus: join all terms (strips spaces) — rewards tight co-occurrence.
-	if len(raw) > 1 {
-		phrase := strings.Join(raw, "")
-		if !seen[phrase] {
-			terms = append(terms, phrase)
+	// Phrase bonus: for queries with at least 2 tokens, add a bigram phrase
+	// key that is only counted when the first two tokens appear consecutively
+	// in the document.  The \x00 separator cannot appear in real tokens
+	// (which contain only letters and digits after Tokenize).
+	if len(raw) >= 2 {
+		phraseKey := raw[0] + phraseKeySep + raw[1]
+		if !seen[phraseKey] {
+			terms = append(terms, phraseKey)
 		}
 	}
 	return terms
@@ -137,14 +138,15 @@ type corpusStats struct {
 
 // docContent holds the parsed content of a single note.
 type docContent struct {
-	rel         string
-	abs         string
-	fmText      string   // raw frontmatter text (YAML values flattened)
-	bodyText    string   // body after stripping code fences
-	allTokens   []string // combined tokenisation used for length
-	termFreq    map[string]int
-	hasTitle    bool   // true when any query term appears in the filename stem
-	titleStem   string // lowercased filename without extension
+	rel        string
+	abs        string
+	rawContent string   // full raw file content (avoids a second ReadFile in Pass 2)
+	fmText     string   // raw frontmatter text (YAML values flattened)
+	bodyText   string   // body after stripping code fences
+	allTokens  []string // combined tokenisation used for length
+	termFreq   map[string]int
+	hasTitle   bool   // true when any query term appears in the filename stem
+	titleStem  string // lowercased filename without extension
 }
 
 // flattenFrontmatter extracts a single string of all YAML values from raw
@@ -167,6 +169,7 @@ func flattenFrontmatter(raw string) string {
 }
 
 // readDoc reads and parses a note into docContent.
+// terms must be the output of buildTerms (individual tokens + optional phrase key).
 func readDoc(rel, abs string, terms []string, opts BM25Options) (*docContent, error) {
 	raw, err := os.ReadFile(abs)
 	if err != nil {
@@ -177,9 +180,10 @@ func readDoc(rel, abs string, terms []string, opts BM25Options) (*docContent, er
 	fmRaw, body, _ := vault.SplitFrontmatter(content)
 
 	dc := &docContent{
-		rel:      rel,
-		abs:      abs,
-		termFreq: map[string]int{},
+		rel:        rel,
+		abs:        abs,
+		rawContent: content,
+		termFreq:   map[string]int{},
 	}
 
 	// Derive title stem.
@@ -204,24 +208,38 @@ func readDoc(rel, abs string, terms []string, opts BM25Options) (*docContent, er
 	}
 	dc.allTokens = Tokenize(combined)
 
-	// Build term frequency map.
+	// Build term frequency map for individual tokens.
 	for _, tok := range dc.allTokens {
 		dc.termFreq[tok]++
 	}
-	// Also count phrase occurrences — join adjacent token pairs as proxy.
-	// The phrase term is the concatenation of all query raw tokens.
-	// We check for exact adjacent sequence in the token list.
-	rawTerms := terms // these are already the canonical (possibly lowercased) individual terms + phrase
-	for _, t := range rawTerms {
-		// Phrase term (longer than any single word): count overlapping window matches.
-		if len(t) > 0 && !strings.ContainsAny(t, " \t") {
-			// Already handled above via allTokens
-			_ = t
+
+	// Phrase bigram pass: identify the phrase key and individual terms,
+	// then count consecutive occurrences in the token list.
+	var indivTerms []string
+	var phraseKey string
+	for _, term := range terms {
+		if strings.Contains(term, phraseKeySep) {
+			phraseKey = term
+		} else {
+			indivTerms = append(indivTerms, term)
+		}
+	}
+	if phraseKey != "" && len(indivTerms) >= 2 {
+		t0 := indivTerms[0]
+		t1 := indivTerms[1]
+		tokens := dc.allTokens
+		for i := 0; i+1 < len(tokens); i++ {
+			if tokens[i] == t0 && tokens[i+1] == t1 {
+				dc.termFreq[phraseKey]++
+			}
 		}
 	}
 
-	// Check title match.
+	// Check title match (skip phrase key).
 	for _, term := range terms {
+		if strings.Contains(term, phraseKeySep) {
+			continue
+		}
 		if strings.Contains(dc.titleStem, term) {
 			dc.hasTitle = true
 			break
@@ -241,22 +259,10 @@ func (s *Service) SearchBM25(ctx context.Context, opts BM25Options) ([]BM25Resul
 		return nil, nil
 	}
 
-	// Default flags: both SearchContent and SearchFrontmatter default to true.
+	// Both explicitly false → nothing to search.
 	if !opts.SearchContent && !opts.SearchFrontmatter {
-		// Both explicitly false → nothing to search.
 		return nil, nil
 	}
-	// Apply default true behaviour when both are zero-valued (false in Go).
-	// Callers that want only one must set the other to false explicitly.
-	// However, since Go zero-value is false, we need a different convention.
-	// Per spec: "SearchContent bool  // default true".
-	// We treat both being false as "use defaults" only if the query is non-empty.
-	// Actually the spec says "if both false, no search" — so keep as-is but
-	// the caller is expected to set at least one. The tool handler will set defaults.
-	//
-	// For the BM25 function itself: if both are false we already returned above.
-	// But callers wanting both enabled should pass SearchContent=true, SearchFrontmatter=true.
-	// The zero-value issue means callers must be explicit. Document this in the tool layer.
 
 	limit := opts.Limit
 	if limit <= 0 {
@@ -343,30 +349,51 @@ func (s *Service) SearchBM25(ctx context.Context, opts BM25Options) ([]BM25Resul
 			return nil
 		}
 
-		// Determine reason.
-		reason := "content"
-		if opts.SearchFrontmatter && dc.fmText != "" {
-			fmLower := dc.fmText
+		// Determine reason by checking individual terms (not phrase key) against
+		// body and frontmatter text.
+		bodyMatch := false
+		fmMatch := false
+		if opts.SearchContent {
 			bodyLower := dc.bodyText
 			if !opts.CaseSensitive {
-				fmLower = strings.ToLower(fmLower)
 				bodyLower = strings.ToLower(bodyLower)
 			}
-			fmMatch := false
-			bodyMatch := false
 			for _, term := range terms {
-				if strings.Contains(fmLower, term) {
-					fmMatch = true
+				if strings.Contains(term, phraseKeySep) {
+					continue
 				}
 				if strings.Contains(bodyLower, term) {
 					bodyMatch = true
+					break
 				}
 			}
-			if fmMatch && bodyMatch {
-				reason = "both"
-			} else if fmMatch {
-				reason = "frontmatter"
+		}
+		if opts.SearchFrontmatter && dc.fmText != "" {
+			fmLower := dc.fmText
+			if !opts.CaseSensitive {
+				fmLower = strings.ToLower(fmLower)
 			}
+			for _, term := range terms {
+				if strings.Contains(term, phraseKeySep) {
+					continue
+				}
+				if strings.Contains(fmLower, term) {
+					fmMatch = true
+					break
+				}
+			}
+		}
+
+		var reason string
+		switch {
+		case bodyMatch && fmMatch:
+			reason = "both"
+		case fmMatch:
+			reason = "frontmatter"
+		case bodyMatch:
+			reason = "content"
+		default:
+			reason = "content" // fallback for scored docs that matched via phrase or title
 		}
 
 		// Title boost: +50% score when any term appears in the filename stem.
@@ -375,17 +402,15 @@ func (s *Service) SearchBM25(ctx context.Context, opts BM25Options) ([]BM25Resul
 			reason = "title"
 		}
 
-		// Collect snippet matches.
-		matches := collectBM25Matches(abs, terms, maxPerFile, opts.CaseSensitive)
-
-		fullContent, _ := os.ReadFile(abs)
+		// Collect snippet matches using rawContent (no second ReadFile call).
+		matches := collectBM25Matches(dc.rawContent, terms, maxPerFile, opts.CaseSensitive)
 
 		results = append(results, BM25Result{
 			Path:       rel,
 			Score:      score,
 			MatchCount: len(matches),
 			Matches:    matches,
-			TokenCount: response.CountTokens(string(fullContent)),
+			TokenCount: response.CountTokens(dc.rawContent),
 			Reason:     reason,
 		})
 		return nil
@@ -407,34 +432,36 @@ func (s *Service) SearchBM25(ctx context.Context, opts BM25Options) ([]BM25Resul
 	return results, nil
 }
 
-// collectBM25Matches scans the file line by line and collects up to maxMatches
-// lines that contain any of the given terms. Returns BM25Match slice.
-func collectBM25Matches(abs string, terms []string, maxMatches int, caseSensitive bool) []BM25Match {
-	f, err := os.Open(abs)
-	if err != nil {
-		return nil
+// collectBM25Matches scans content line by line and collects up to maxMatches
+// lines that contain any of the given terms. Code-fenced lines are excluded —
+// matching is performed against the stripped version but snippets are taken
+// from the original lines. Returns BM25Match slice.
+func collectBM25Matches(content string, terms []string, maxMatches int, caseSensitive bool) []BM25Match {
+	stripped := StripCodeFences(content)
+	origLines := strings.Split(content, "\n")
+	strippedLines := strings.Split(stripped, "\n")
+
+	// Align line counts: use the minimum to be safe if lengths diverge.
+	n := len(origLines)
+	if len(strippedLines) < n {
+		n = len(strippedLines)
 	}
-	defer f.Close()
 
 	var matches []BM25Match
-	lineNum := 0
-	scanner := bufio.NewScanner(f)
-
-	for scanner.Scan() {
-		if len(matches) >= maxMatches {
-			break
-		}
-		lineNum++
-		line := scanner.Text()
-		checkLine := line
+	for i := 0; i < n && len(matches) < maxMatches; i++ {
+		checkLine := strippedLines[i]
 		if !caseSensitive {
-			checkLine = strings.ToLower(line)
+			checkLine = strings.ToLower(checkLine)
 		}
 		for _, term := range terms {
+			// Phrase keys don't appear literally in text — skip them.
+			if strings.Contains(term, phraseKeySep) {
+				continue
+			}
 			if strings.Contains(checkLine, term) {
 				matches = append(matches, BM25Match{
-					Line:    lineNum,
-					Snippet: strings.TrimSpace(line),
+					Line:    i + 1,
+					Snippet: strings.TrimSpace(origLines[i]),
 					Term:    term,
 				})
 				break
