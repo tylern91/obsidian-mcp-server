@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -8,6 +9,10 @@ import (
 	"strconv"
 	"strings"
 )
+
+// ErrVersionRequested is returned by Load when the --version flag is passed.
+// The caller should print the version and exit 0.
+var ErrVersionRequested = errors.New("version requested")
 
 // Config holds all configuration for the obsidian-mcp-server.
 type Config struct {
@@ -27,6 +32,7 @@ func Load(args []string) (*Config, error) {
 	fs := flag.NewFlagSet("obsidian-mcp", flag.ContinueOnError)
 
 	// Define flags with defaults.
+	showVersion := fs.Bool("version", false, "print version and exit")
 	vaultPath := fs.String("vault", "", "path to Obsidian vault directory")
 	extensions := fs.String("extensions", ".md,.markdown,.txt,.canvas", "comma-separated list of file extensions to index")
 	ignorePatterns := fs.String("ignore", ".obsidian,.git,node_modules,.DS_Store,.trash", "comma-separated list of patterns to ignore")
@@ -37,6 +43,11 @@ func Load(args []string) (*Config, error) {
 
 	if err := fs.Parse(args); err != nil {
 		return nil, err
+	}
+
+	// Short-circuit: --version takes priority over all other validation.
+	if *showVersion {
+		return nil, ErrVersionRequested
 	}
 
 	// Track which flags were explicitly set by the caller.

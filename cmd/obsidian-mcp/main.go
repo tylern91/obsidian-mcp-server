@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -13,9 +14,8 @@ import (
 	"github.com/tylern91/obsidian-mcp-server/internal/search"
 	"github.com/tylern91/obsidian-mcp-server/internal/tools"
 	"github.com/tylern91/obsidian-mcp-server/internal/vault"
+	version "github.com/tylern91/obsidian-mcp-server/internal/version"
 )
-
-const version = "1.0.0"
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -27,6 +27,10 @@ func main() {
 func run(args []string) error {
 	cfg, err := config.Load(args)
 	if err != nil {
+		if errors.Is(err, config.ErrVersionRequested) {
+			fmt.Fprintf(os.Stdout, "obsidian-mcp %s\n", version.Version)
+			return nil
+		}
 		return err
 	}
 
@@ -42,7 +46,7 @@ func run(args []string) error {
 		"vault", cfg.VaultPath,
 		"extensions", cfg.Extensions,
 		"maxResults", cfg.MaxResults,
-		"version", version,
+		"version", version.Version,
 	)
 
 	filter := vault.NewPathFilter(cfg.IgnorePatterns, cfg.Extensions)
@@ -52,7 +56,7 @@ func run(args []string) error {
 
 	s := mcpserver.NewMCPServer(
 		"obsidian-mcp",
-		version,
+		version.Version,
 		mcpserver.WithToolCapabilities(true),
 		mcpserver.WithPromptCapabilities(true),
 		mcpserver.WithResourceCapabilities(false, true),
