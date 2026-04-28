@@ -12,11 +12,11 @@ import (
 // It invalidates when either the TTL expires or the vault root directory
 // mtime changes (so tests that write notes see fresh results immediately).
 type resourceCache struct {
-	mu         sync.Mutex
-	data       []mcp.ResourceContents
-	rootMtime  time.Time
-	computed   time.Time
-	ttl        time.Duration
+	mu        sync.Mutex
+	data      []mcp.ResourceContents
+	rootMtime time.Time
+	computed  time.Time
+	ttl       time.Duration
 }
 
 // get returns cached data if it is still fresh, otherwise calls recompute,
