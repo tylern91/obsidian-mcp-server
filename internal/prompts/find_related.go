@@ -3,10 +3,12 @@ package prompts
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/tylern91/obsidian-mcp-server/internal/vault"
 )
 
 func registerFindRelated(s *server.MCPServer, deps Deps) {
@@ -32,9 +34,15 @@ func findRelatedHandler(deps Deps) server.PromptHandlerFunc {
 			return errorPrompt(fmt.Sprintf("could not read note %q: %v", path, err)), nil
 		}
 
-		tags, _ := deps.Vault.ListTags(ctx, path)
-		backlinks, _ := deps.Vault.GetBacklinks(ctx, path)
-		outgoing := extractWikilinks(note.Content)
+		tags, err := deps.Vault.ListTags(ctx, path)
+		if err != nil {
+			slog.Debug("find_related: ListTags failed", "path", path, "err", err)
+		}
+		backlinks, err := deps.Vault.GetBacklinks(ctx, path)
+		if err != nil {
+			slog.Debug("find_related: GetBacklinks failed", "path", path, "err", err)
+		}
+		outgoing := vault.ExtractLinks(note.Content)
 
 		var sb strings.Builder
 		sb.WriteString(fmt.Sprintf("Note: %s\n\n", note.Path))
@@ -69,29 +77,4 @@ For each suggestion, explain why the link would be valuable.`)
 			},
 		), nil
 	}
-}
-
-// extractWikilinks extracts [[target]] link targets from note content.
-func extractWikilinks(content string) []string {
-	var links []string
-	seen := make(map[string]bool)
-	for i := 0; i < len(content)-3; i++ {
-		if content[i] == '[' && content[i+1] == '[' {
-			end := strings.Index(content[i+2:], "]]")
-			if end < 0 {
-				continue
-			}
-			target := content[i+2 : i+2+end]
-			if pipe := strings.Index(target, "|"); pipe >= 0 {
-				target = target[:pipe]
-			}
-			target = strings.TrimSpace(target)
-			if target != "" && !seen[target] {
-				seen[target] = true
-				links = append(links, target)
-			}
-			i += 2 + end + 1
-		}
-	}
-	return links
 }

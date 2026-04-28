@@ -11,13 +11,14 @@ import (
 
 // Config holds all configuration for the obsidian-mcp-server.
 type Config struct {
-	VaultPath      string
-	Extensions     []string
-	IgnorePatterns []string
-	PrettyPrint    bool
-	MaxBatch       int
-	MaxResults     int
-	LogLevel       string
+	VaultPath       string
+	Extensions      []string
+	IgnorePatterns  []string
+	PrettyPrint     bool
+	MaxBatch        int
+	MaxResults      int
+	LogLevel        string
+	InvalidLogLevel string // non-empty when an unrecognized log level was given
 }
 
 // Load parses configuration from CLI flags, environment variables, and defaults.
@@ -109,11 +110,12 @@ func Load(args []string) (*Config, error) {
 		}
 	}
 
-	// Normalize LogLevel: default to "warn" if unrecognized.
+	// Normalize LogLevel: default to "warn" if unrecognized, and record the bad value.
 	switch cfg.LogLevel {
 	case "debug", "info", "warn", "error":
 		// valid
 	default:
+		cfg.InvalidLogLevel = cfg.LogLevel
 		cfg.LogLevel = "warn"
 	}
 

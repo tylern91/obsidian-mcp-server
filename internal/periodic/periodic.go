@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -214,7 +215,7 @@ func (s *Service) Resolve(granularity string, offset int) (string, error) {
 		return "", err
 	}
 
-	return gc.Folder + "/" + stem + ".md", nil
+	return path.Join(gc.Folder, stem+".md"), nil
 }
 
 // RecentDates returns the `count` most recent dates (descending) ending at now.

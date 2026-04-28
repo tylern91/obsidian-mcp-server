@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"os"
 	"sort"
-	"strconv"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -27,9 +26,9 @@ func registerReadMultipleNotes(s *server.MCPServer, deps Deps) {
 		mcp.WithBoolean("summary",
 			mcp.Description("When true, return headOf instead of full content (default: false)"),
 		),
-		mcp.WithString("headChars",
+		mcp.WithNumber("headChars",
 			mcp.Description("Number of runes for headOf when summary=true (default: 200)"),
-			mcp.DefaultString("200"),
+			mcp.DefaultNumber(200),
 		),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
@@ -50,11 +49,9 @@ func readMultipleNotesHandler(deps Deps) server.ToolHandlerFunc {
 		}
 
 		summary := req.GetBool("summary", false)
-
-		headCharsStr := req.GetString("headChars", "200")
-		headChars := defaultHeadChars
-		if n, parseErr := strconv.Atoi(headCharsStr); parseErr == nil && n > 0 {
-			headChars = n
+		headChars := req.GetInt("headChars", defaultHeadChars)
+		if headChars <= 0 {
+			headChars = defaultHeadChars
 		}
 
 		maxBatch := deps.MaxBatch
@@ -231,14 +228,21 @@ func getVaultStatsHandler(deps Deps) server.ToolHandlerFunc {
 			ModTime string `json:"modTime"`
 		}
 
+		// noteRefInternal holds the raw time.Time for comparisons; ModTime is
+		// formatted to RFC3339 only when assembling the final response.
+		type noteRefInternal struct {
+			path string
+			mt   time.Time
+		}
+
 		var (
 			noteCount  int
 			totalBytes int64
 			totalLinks int
 			totalToks  int
 
-			oldest *noteRef
-			newest *noteRef
+			oldest *noteRefInternal
+			newest *noteRefInternal
 		)
 
 		walkErr := deps.Vault.WalkNotes(ctx, func(rel, abs string) error {
@@ -265,15 +269,12 @@ func getVaultStatsHandler(deps Deps) server.ToolHandlerFunc {
 			}
 
 			mt := info.ModTime()
-			ref := &noteRef{
-				Path:    rel,
-				ModTime: mt.UTC().Format(time.RFC3339),
-			}
+			ref := &noteRefInternal{path: rel, mt: mt}
 
-			if oldest == nil || mt.Before(parseModTime(oldest.ModTime)) {
+			if oldest == nil || mt.Before(oldest.mt) {
 				oldest = ref
 			}
-			if newest == nil || mt.After(parseModTime(newest.ModTime)) {
+			if newest == nil || mt.After(newest.mt) {
 				newest = ref
 			}
 
@@ -320,9 +321,13 @@ func getVaultStatsHandler(deps Deps) server.ToolHandlerFunc {
 			TotalLinks: totalLinks,
 			TotalTags:  len(tagMap),
 			TopTags:    topTags,
-			OldestNote: oldest,
-			NewestNote: newest,
 			VaultRoot:  deps.Vault.Root(),
+		}
+		if oldest != nil {
+			statsResp.OldestNote = &noteRef{Path: oldest.path, ModTime: oldest.mt.UTC().Format(time.RFC3339)}
+		}
+		if newest != nil {
+			statsResp.NewestNote = &noteRef{Path: newest.path, ModTime: newest.mt.UTC().Format(time.RFC3339)}
 		}
 		if includeTokenCounts {
 			statsResp.TotalTokens = &totalToks
@@ -334,10 +339,4 @@ func getVaultStatsHandler(deps Deps) server.ToolHandlerFunc {
 		}
 		return mcp.NewToolResultText(out), nil
 	}
-}
-
-// parseModTime parses an RFC3339 time string, returning zero time on failure.
-func parseModTime(s string) time.Time {
-	t, _ := time.Parse(time.RFC3339, s)
-	return t
 }

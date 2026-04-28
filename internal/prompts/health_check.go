@@ -8,6 +8,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/tylern91/obsidian-mcp-server/internal/vault"
 )
 
 func registerVaultHealthCheck(s *server.MCPServer, deps Deps) {
@@ -44,7 +45,7 @@ Based on the audit above, please:
 func buildHealthReport(ctx context.Context, deps Deps) (string, error) {
 	type noteData struct {
 		tags     []string
-		links    []string // outgoing wikilink targets
+		links    []string // outgoing link targets
 		incoming int      // populated after walk
 	}
 
@@ -57,7 +58,7 @@ func buildHealthReport(ctx context.Context, deps Deps) (string, error) {
 			return nil // skip unreadable notes
 		}
 		tags, _ := deps.Vault.ListTags(ctx, rel)
-		links := extractWikilinks(note.Content)
+		links := vault.ExtractLinks(note.Content)
 		all[rel] = &noteData{tags: tags, links: links}
 
 		stem := strings.TrimSuffix(filepath.Base(rel), filepath.Ext(rel))

@@ -7,4 +7,3 @@ var DailyNoteReviewHandler = func(deps Deps) server.PromptHandlerFunc { return d
 var WeeklyReviewHandler = func(deps Deps) server.PromptHandlerFunc { return weeklyReviewHandler(deps) }
 var FindRelatedHandler = func(deps Deps) server.PromptHandlerFunc { return findRelatedHandler(deps) }
 var VaultHealthCheckHandler = func(deps Deps) server.PromptHandlerFunc { return vaultHealthCheckHandler(deps) }
-var ExtractWikilinks = extractWikilinks

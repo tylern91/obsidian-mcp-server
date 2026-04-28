@@ -603,3 +603,26 @@ func TestService_ReadNote_CancelledContext(t *testing.T) {
 		t.Fatal("expected error for cancelled context, got nil")
 	}
 }
+
+// ----------------------------------------------------------------------------
+// WriteNote — content size cap
+// ----------------------------------------------------------------------------
+
+func TestWriteNote_ContentTooLarge(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dir := t.TempDir()
+	svc := vault.New(dir, vault.NewPathFilter(defaultIgnore, defaultExts))
+
+	// Build a string larger than the 16 MB cap.
+	oversized := strings.Repeat("x", 17*1024*1024)
+
+	err := svc.WriteNote(ctx, "Notes/big.md", oversized, vault.WriteModeOverwrite)
+	if err == nil {
+		t.Fatal("WriteNote with oversized content: expected error, got nil")
+	}
+	if !errors.Is(err, vault.ErrFileTooLarge) {
+		t.Errorf("WriteNote with oversized content: error = %v, want errors.Is(ErrFileTooLarge)", err)
+	}
+}
