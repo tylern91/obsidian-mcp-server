@@ -67,3 +67,17 @@ func (f *PathFilter) IsAllowedExtension(path string) bool {
 	}
 	return false
 }
+
+// Stem returns the file's name without its extension.
+//
+// Example: Stem("Notes/Daily/2025-01-15.md") → "2025-01-15"
+func Stem(path string) string {
+	base := filepath.Base(path)
+	return strings.TrimSuffix(base, filepath.Ext(base))
+}
+
+// StemLower is Stem(path) lowercased — useful for case-insensitive lookups
+// such as wikilink resolution where Obsidian matches case-insensitively.
+func StemLower(path string) string {
+	return strings.ToLower(Stem(path))
+}

@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+**Code quality / simplification pass**
+- Eliminated double-vault-walk in `get_vault_stats` and vault resource handler — new `(*vault.Service).VaultStats` does a single walk returning all aggregate metrics (`NoteCount`, `TotalBytes`, `TotalLinks`, `TotalTokens`, `Oldest`/`Newest`, `TagCounts`)
+- `list_all_tags` and `get_vault_stats` top-tags response: JSON key renamed `"tag"` → `"name"` (aligns with `vault.TagCount` type)
+- Extracted `vault.Stem` / `vault.StemLower` helpers; eliminated 7 inline `strings.TrimSuffix(filepath.Base, filepath.Ext)` chains across audit, prompts, search, and links
+- Extracted `vault.MergeNoteTags` helper; replaced 3 separate frontmatter+inline tag merge blocks
+- Extracted `vault.TopTagsByCount` helper; replaced 4 inline sort-and-cap tag-ranking loops
+- Extracted `tools.parseJSONArg[T]` generic helper; replaced 5 inline `json.Unmarshal` blocks in tool handlers
+- Extracted `prompts.singleUserPrompt` helper; collapsed identical return-wrapping in 5 prompt handlers
+- Collapsed 7-fold env-override copy-paste in `config.Load` into `envString`/`envBool`/`envInt`/`envStringSlice` helpers
+- Collapsed 3 identical map-copy loops in `periodic.LoadConfig` into `mergeStringMap` helper
+- Removed `vault.WriteMode("overwrite")` string cast in favour of `vault.WriteModeOverwrite` constant
+- Deleted 18 narration comments across `tools/`, `search/`, and `vault/` packages
+
 ## [1.0.0] - 2026-04-27
 
 ### Added

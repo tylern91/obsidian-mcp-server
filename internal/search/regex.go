@@ -101,7 +101,6 @@ func globToRegex(glob string) string {
 //
 // An empty Scope defaults to "content".
 func (s *Service) SearchRegex(ctx context.Context, opts RegexOptions) ([]RegexResult, error) {
-	// Apply defaults.
 	limit := opts.Limit
 	if limit <= 0 {
 		limit = defaultRegexLimit
@@ -115,7 +114,6 @@ func (s *Service) SearchRegex(ctx context.Context, opts RegexOptions) ([]RegexRe
 		scope = "content"
 	}
 
-	// Build the compiled regex.
 	pattern := opts.Pattern
 	if opts.IsGlob {
 		pattern = globToRegex(opts.Pattern)

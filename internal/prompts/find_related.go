@@ -70,11 +70,6 @@ func findRelatedHandler(deps Deps) server.PromptHandlerFunc {
 
 For each suggestion, explain why the link would be valuable.`)
 
-		return mcp.NewGetPromptResult(
-			"Find related notes worth linking",
-			[]mcp.PromptMessage{
-				mcp.NewPromptMessage(mcp.RoleUser, mcp.NewTextContent(sb.String())),
-			},
-		), nil
+		return singleUserPrompt("Find related notes worth linking", sb.String()), nil
 	}
 }

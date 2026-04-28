@@ -2,11 +2,11 @@ package tools
 
 import (
 	"context"
-	"sort"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/tylern91/obsidian-mcp-server/internal/response"
+	"github.com/tylern91/obsidian-mcp-server/internal/vault"
 )
 
 func registerManageTags(s *server.MCPServer, deps Deps) {
@@ -105,26 +105,13 @@ func listAllTagsHandler(deps Deps) server.ToolHandlerFunc {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		type tagEntry struct {
-			Tag   string `json:"tag"`
-			Count int    `json:"count"`
-		}
-		entries := make([]tagEntry, 0, len(tagCounts))
-		for tag, count := range tagCounts {
-			entries = append(entries, tagEntry{Tag: tag, Count: count})
-		}
-		sort.Slice(entries, func(i, j int) bool {
-			if entries[i].Count != entries[j].Count {
-				return entries[i].Count > entries[j].Count
-			}
-			return entries[i].Tag < entries[j].Tag
-		})
+		top := vault.TopTagsByCount(tagCounts, len(tagCounts))
 
 		type allTagsResponse struct {
-			Tags  []tagEntry `json:"tags"`
-			Total int        `json:"total"`
+			Tags  []vault.TagCount `json:"tags"`
+			Total int              `json:"total"`
 		}
-		result, err := response.FormatJSON(allTagsResponse{Tags: entries, Total: len(entries)}, prettyPrint)
+		result, err := response.FormatJSON(allTagsResponse{Tags: top, Total: len(top)}, prettyPrint)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}

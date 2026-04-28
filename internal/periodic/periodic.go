@@ -60,9 +60,7 @@ func (s *Service) LoadConfig() (Config, error) {
 	if s.configCache != nil {
 		// Return a shallow copy so callers cannot mutate the cache.
 		out := make(Config, len(*s.configCache))
-		for k, v := range *s.configCache {
-			out[k] = v
-		}
+		mergeStringMap(out, *s.configCache)
 		return out, nil
 	}
 
@@ -72,9 +70,7 @@ func (s *Service) LoadConfig() (Config, error) {
 		if os.IsNotExist(err) {
 			// Return a copy of the defaults and cache them.
 			out := make(Config, len(defaultConfig))
-			for k, v := range defaultConfig {
-				out[k] = v
-			}
+			mergeStringMap(out, defaultConfig)
 			s.configCache = &out
 			return out, nil
 		}
@@ -88,10 +84,15 @@ func (s *Service) LoadConfig() (Config, error) {
 	s.configCache = &cfg
 	// Return a copy so callers cannot mutate the cache.
 	out := make(Config, len(cfg))
-	for k, v := range cfg {
-		out[k] = v
-	}
+	mergeStringMap(out, cfg)
 	return out, nil
+}
+
+// mergeStringMap copies all entries from src into dst.
+func mergeStringMap(dst, src Config) {
+	for k, v := range src {
+		dst[k] = v
+	}
 }
 
 // formatMoment converts a moment.js format string and a time.Time into the

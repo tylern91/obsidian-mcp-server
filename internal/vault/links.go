@@ -80,7 +80,7 @@ func (s *Service) GetBacklinks(ctx context.Context, targetPath string) ([]Backli
 	// Build the set of strings a link must equal to be considered a match.
 	relTarget := filepath.ToSlash(targetPath)
 	base := filepath.Base(relTarget)
-	baseNoExt := strings.TrimSuffix(base, filepath.Ext(base))
+	baseNoExt := Stem(relTarget)
 	relNoExt := strings.TrimSuffix(relTarget, filepath.Ext(relTarget))
 
 	matchTargets := map[string]bool{

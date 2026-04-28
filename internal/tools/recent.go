@@ -34,7 +34,6 @@ func registerGetRecentChanges(s *server.MCPServer, deps Deps) {
 
 func recentChangesHandler(deps Deps) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		// Parse limit.
 		limit := req.GetInt("limit", defaultRecentLimit)
 		if limit <= 0 {
 			limit = defaultRecentLimit
@@ -47,7 +46,6 @@ func recentChangesHandler(deps Deps) server.ToolHandlerFunc {
 			limit = maxResults
 		}
 
-		// Parse since.
 		sinceStr := req.GetString("since", "")
 		var sinceTime time.Time
 		if sinceStr != "" {
@@ -58,10 +56,8 @@ func recentChangesHandler(deps Deps) server.ToolHandlerFunc {
 			}
 		}
 
-		// Parse summary flag (default false).
 		summary := req.GetBool("summary", false)
 
-		// Collect all entries via WalkNotes.
 		type entry struct {
 			rel     string
 			abs     string
@@ -91,12 +87,10 @@ func recentChangesHandler(deps Deps) server.ToolHandlerFunc {
 			return entries[i].modTime.After(entries[j].modTime)
 		})
 
-		// Truncate to limit.
 		if len(entries) > limit {
 			entries = entries[:limit]
 		}
 
-		// Build response.
 		type noteEntry struct {
 			Path    string  `json:"path"`
 			ModTime string  `json:"modTime"`

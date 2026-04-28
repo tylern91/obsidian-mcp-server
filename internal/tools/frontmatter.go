@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -82,16 +81,16 @@ func updateFrontmatterHandler(deps Deps) server.ToolHandlerFunc {
 		}
 
 		var updates map[string]any
-		if updatesStr := req.GetString("updates", ""); updatesStr != "" {
-			if err := json.Unmarshal([]byte(updatesStr), &updates); err != nil {
-				return mcp.NewToolResultError("updates: invalid JSON object: " + err.Error()), nil
+		if req.GetString("updates", "") != "" {
+			if errResult := parseJSONArg(req, "updates", &updates); errResult != nil {
+				return errResult, nil
 			}
 		}
 
 		var removeKeys []string
-		if removeStr := req.GetString("removeKeys", ""); removeStr != "" {
-			if err := json.Unmarshal([]byte(removeStr), &removeKeys); err != nil {
-				return mcp.NewToolResultError("removeKeys: invalid JSON array: " + err.Error()), nil
+		if req.GetString("removeKeys", "") != "" {
+			if errResult := parseJSONArg(req, "removeKeys", &removeKeys); errResult != nil {
+				return errResult, nil
 			}
 		}
 

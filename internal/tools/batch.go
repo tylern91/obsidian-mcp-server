@@ -2,9 +2,7 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
-	"os"
-	"sort"
+	"fmt"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -38,14 +36,9 @@ func registerReadMultipleNotes(s *server.MCPServer, deps Deps) {
 
 func readMultipleNotesHandler(deps Deps) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		pathsJSON, err := req.RequireString("paths")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-
 		var paths []string
-		if err := json.Unmarshal([]byte(pathsJSON), &paths); err != nil {
-			return mcp.NewToolResultError("paths: invalid JSON array: " + err.Error()), nil
+		if errResult := parseJSONArg(req, "paths", &paths); errResult != nil {
+			return errResult, nil
 		}
 
 		summary := req.GetBool("summary", false)
@@ -133,14 +126,9 @@ func registerGetNotesInfo(s *server.MCPServer, deps Deps) {
 
 func getNotesInfoHandler(deps Deps) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		pathsJSON, err := req.RequireString("paths")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-
 		var paths []string
-		if err := json.Unmarshal([]byte(pathsJSON), &paths); err != nil {
-			return mcp.NewToolResultError("paths: invalid JSON array: " + err.Error()), nil
+		if errResult := parseJSONArg(req, "paths", &paths); errResult != nil {
+			return errResult, nil
 		}
 
 		maxBatch := deps.MaxBatch
@@ -217,120 +205,53 @@ func getVaultStatsHandler(deps Deps) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		includeTokenCounts := req.GetBool("includeTokenCounts", false)
 
-		// Gather tag map (unique tag → count across all notes).
-		tagMap, err := deps.Vault.AggregateTags(ctx)
-		if err != nil {
-			return mcp.NewToolResultError("AggregateTags: " + err.Error()), nil
+		vaultOpts := vault.VaultStatsOpts{
+			IncludeTokens: includeTokenCounts,
 		}
+		if includeTokenCounts {
+			vaultOpts.TokenCounter = response.CountTokens
+		}
+		vs, err := deps.Vault.VaultStats(ctx, vaultOpts)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("vault stats: %v", err)), nil
+		}
+
+		top20Tags := vault.TopTagsByCount(vs.TagCounts, 20)
 
 		type noteRef struct {
 			Path    string `json:"path"`
 			ModTime string `json:"modTime"`
 		}
 
-		// noteRefInternal holds the raw time.Time for comparisons; ModTime is
-		// formatted to RFC3339 only when assembling the final response.
-		type noteRefInternal struct {
-			path string
-			mt   time.Time
-		}
-
-		var (
-			noteCount  int
-			totalBytes int64
-			totalLinks int
-			totalToks  int
-
-			oldest *noteRefInternal
-			newest *noteRefInternal
-		)
-
-		walkErr := deps.Vault.WalkNotes(ctx, func(rel, abs string) error {
-			data, readErr := os.ReadFile(abs)
-			if readErr != nil {
-				// Skip unreadable files silently.
-				return nil
-			}
-
-			info, statErr := os.Stat(abs)
-			if statErr != nil {
-				return nil
-			}
-
-			noteCount++
-			totalBytes += info.Size()
-			content := string(data)
-
-			links := vault.ExtractLinks(content)
-			totalLinks += len(links)
-
-			if includeTokenCounts {
-				totalToks += response.CountTokens(content)
-			}
-
-			mt := info.ModTime()
-			ref := &noteRefInternal{path: rel, mt: mt}
-
-			if oldest == nil || mt.Before(oldest.mt) {
-				oldest = ref
-			}
-			if newest == nil || mt.After(newest.mt) {
-				newest = ref
-			}
-
-			return nil
-		})
-		if walkErr != nil {
-			return mcp.NewToolResultError("WalkNotes: " + walkErr.Error()), nil
-		}
-
-		// Build top-20 tags sorted descending by count, then alphabetically.
-		type tagEntry struct {
-			Tag   string `json:"tag"`
-			Count int    `json:"count"`
-		}
-		topTags := make([]tagEntry, 0, len(tagMap))
-		for tag, count := range tagMap {
-			topTags = append(topTags, tagEntry{Tag: tag, Count: count})
-		}
-		sort.Slice(topTags, func(i, j int) bool {
-			if topTags[i].Count != topTags[j].Count {
-				return topTags[i].Count > topTags[j].Count
-			}
-			return topTags[i].Tag < topTags[j].Tag
-		})
-		if len(topTags) > 20 {
-			topTags = topTags[:20]
-		}
-
 		type vaultStatsResponse struct {
-			NoteCount   int        `json:"noteCount"`
-			TotalBytes  int64      `json:"totalBytes"`
-			TotalLinks  int        `json:"totalLinks"`
-			TotalTags   int        `json:"totalTags"`
-			TopTags     []tagEntry `json:"topTags"`
-			OldestNote  *noteRef   `json:"oldestNote,omitempty"`
-			NewestNote  *noteRef   `json:"newestNote,omitempty"`
-			TotalTokens *int       `json:"totalTokens,omitempty"`
-			VaultRoot   string     `json:"vaultRoot"`
+			NoteCount   int              `json:"noteCount"`
+			TotalBytes  int64            `json:"totalBytes"`
+			TotalLinks  int              `json:"totalLinks"`
+			TotalTags   int              `json:"totalTags"`
+			TopTags     []vault.TagCount `json:"topTags"`
+			OldestNote  *noteRef         `json:"oldestNote,omitempty"`
+			NewestNote  *noteRef         `json:"newestNote,omitempty"`
+			TotalTokens *int             `json:"totalTokens,omitempty"`
+			VaultRoot   string           `json:"vaultRoot"`
 		}
 
 		statsResp := vaultStatsResponse{
-			NoteCount:  noteCount,
-			TotalBytes: totalBytes,
-			TotalLinks: totalLinks,
-			TotalTags:  len(tagMap),
-			TopTags:    topTags,
+			NoteCount:  vs.NoteCount,
+			TotalBytes: vs.TotalBytes,
+			TotalLinks: vs.TotalLinks,
+			TotalTags:  len(vs.TagCounts),
+			TopTags:    top20Tags,
 			VaultRoot:  deps.Vault.Root(),
 		}
-		if oldest != nil {
-			statsResp.OldestNote = &noteRef{Path: oldest.path, ModTime: oldest.mt.UTC().Format(time.RFC3339)}
+		if vs.Oldest != nil {
+			statsResp.OldestNote = &noteRef{Path: vs.Oldest.Path, ModTime: vs.Oldest.ModTime.UTC().Format(time.RFC3339)}
 		}
-		if newest != nil {
-			statsResp.NewestNote = &noteRef{Path: newest.path, ModTime: newest.mt.UTC().Format(time.RFC3339)}
+		if vs.Newest != nil {
+			statsResp.NewestNote = &noteRef{Path: vs.Newest.Path, ModTime: vs.Newest.ModTime.UTC().Format(time.RFC3339)}
 		}
 		if includeTokenCounts {
-			statsResp.TotalTokens = &totalToks
+			toks := vs.TotalTokens
+			statsResp.TotalTokens = &toks
 		}
 
 		out, err := response.FormatJSON(statsResp, deps.PrettyPrint)

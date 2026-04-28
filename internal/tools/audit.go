@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,31 +43,26 @@ func registerAuditNotes(s *server.MCPServer, deps Deps) {
 
 func auditNotesHandler(deps Deps) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		// Parse classes parameter.
-		classesStr := req.GetString("classes", "")
 		var classes []string
-		if classesStr != "" {
-			if err := json.Unmarshal([]byte(classesStr), &classes); err != nil {
-				return mcp.NewToolResultError("classes: invalid JSON array: " + err.Error()), nil
+		if classesStr := req.GetString("classes", ""); classesStr != "" {
+			if errResult := parseJSONArg(req, "classes", &classes); errResult != nil {
+				return errResult, nil
 			}
 		}
 		if len(classes) == 0 {
 			classes = defaultAuditClasses
 		}
 
-		// Build a set for quick class membership check.
 		wantClass := make(map[string]bool, len(classes))
 		for _, c := range classes {
 			wantClass[c] = true
 		}
 
-		// Parse limit.
 		limit := req.GetInt("limit", 20)
 		if limit <= 0 {
 			limit = 20
 		}
 
-		// ── Single-pass walk ────────────────────────────────────────────────────
 		type auditData struct {
 			allPaths    map[string]bool     // vault-relative paths that exist
 			stemToPath  map[string]string   // lowercase stem → vault-relative path (for link resolution)
@@ -93,16 +87,14 @@ func auditNotesHandler(deps Deps) server.ToolHandlerFunc {
 			ad.allPaths[rel] = true
 
 			// Build stem→path map for link resolution (case-insensitive, no extension).
-			base := filepath.Base(rel)
-			ext := filepath.Ext(base)
-			stem := strings.ToLower(strings.TrimSuffix(base, ext))
+			stem := vault.StemLower(rel)
 			// Last writer wins for duplicate stems; sufficient for orphan detection.
 			ad.stemToPath[stem] = rel
 
 			// notesByStem uses the case-sensitive base name stem as key
 			// (Obsidian wikilinks are case-insensitive, but stems for duplicate detection
 			// should use the raw basename for display accuracy).
-			rawStem := strings.TrimSuffix(base, ext)
+			rawStem := vault.Stem(rel)
 			ad.notesByStem[rawStem] = append(ad.notesByStem[rawStem], rel)
 
 			data, readErr := os.ReadFile(abs)
@@ -111,26 +103,7 @@ func auditNotesHandler(deps Deps) server.ToolHandlerFunc {
 			}
 			content := string(data)
 
-			rawFM, body, hasFM := vault.SplitFrontmatter(content)
-			var tags []string
-			if hasFM {
-				fm, parseErr := vault.ParseFrontmatter(rawFM)
-				if parseErr == nil {
-					tags = append(tags, vault.ExtractFrontmatterTags(fm)...)
-				}
-			}
-			// Merge inline tags (dedup).
-			seen := make(map[string]bool, len(tags))
-			for _, t := range tags {
-				seen[t] = true
-			}
-			for _, t := range vault.ExtractInlineTags(body) {
-				if !seen[t] {
-					seen[t] = true
-					tags = append(tags, t)
-				}
-			}
-			ad.tagsByPath[rel] = tags
+			ad.tagsByPath[rel] = vault.MergeNoteTags(data)
 
 			// Extract link targets.
 			targets := vault.ExtractLinks(content)
@@ -142,7 +115,6 @@ func auditNotesHandler(deps Deps) server.ToolHandlerFunc {
 			return mcp.NewToolResultError("audit_notes: walk failed: " + walkErr.Error()), nil
 		}
 
-		// ── Build incoming-links index ──────────────────────────────────────────
 		// incomingCount[path] = number of OTHER notes that link to this path.
 		// Resolution uses stemToPath so stem-matched wikilinks map to actual paths.
 		incomingCount := make(map[string]int, len(ad.allPaths))
@@ -155,7 +127,6 @@ func auditNotesHandler(deps Deps) server.ToolHandlerFunc {
 			}
 		}
 
-		// ── Compute results for each requested class ────────────────────────────
 		// capEntries collects up to limit+1 entries from a full slice, then
 		// returns (trimmed slice, truncated). Collecting one extra lets us detect
 		// whether there were MORE results beyond the limit without under-reporting.
@@ -260,7 +231,6 @@ func auditNotesHandler(deps Deps) server.ToolHandlerFunc {
 			results["duplicate-titles"] = entries
 		}
 
-		// ── Build response ──────────────────────────────────────────────────────
 		// Use a dynamic map so we only include requested class keys.
 		respMap := make(map[string]any, len(classes)+1)
 		for _, c := range classes {
