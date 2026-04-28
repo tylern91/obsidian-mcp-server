@@ -1,0 +1,57 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(rm -rf /)*",
+      "Bash(rm -rf ~)*",
+      "Read(**/.DS_Store)",
+      "Read(**/.idea/**)",
+      "Read(**/.vscode/**)",
+      "Read(**/.serena/cache/**)",
+      "Read(**/.worktrees/**)",
+      "Read(**/Cargo.lock)",
+      "Read(**/bin/**)",
+      "Read(**/build/**)",
+      "Read(**/dist/**)",
+      "Read(**/go.sum)",
+      "Read(**/node_modules/**)",
+      "Read(**/package-lock.json)",
+      "Read(**/pnpm-lock.yaml)",
+      "Read(**/poetry.lock)",
+      "Read(**/vendor/**)",
+      "Read(**/yarn.lock)"
+    ]
+  },
+
+  "enableAllProjectMcpServers": false,
+  "disabledMcpjsonServers": [],
+
+  "disabledPlugins": [
+    "application-performance",
+    "skill-creator"
+  ],
+
+  "disabledSkills": [
+    "helm-generator", "helm-validator",
+    "aws-vpc", "aws-iam", "aws-lambda", "aws-ecs-fargate", "aws-secrets-manager",
+    "terraform-validator", "terraform-generator",
+    "terragrunt-generator", "terragrunt-validator",
+    "k8s-yaml-validator", "k8s-yaml-generator", "k8s-debug", "kubernetes-hardening",
+    "kustomize", "kustomize-generator", "kustomize-validator",
+    "cloudformation-validator", "cloudformation-generator",
+    "docker-compose", "docker-compose-generator", "docker-compose-validator",
+    "dockerfile-generator", "dockerfile-validator",
+    "container-hardening", "container-registries", "container-scanning",
+    "hashicorp-vault", "opentelemetry",
+    "supabase-postgres-best-practices", "redis-development",
+    "vulnerability-scanning", "dependency-scanning", "sast-scanning",
+    "threat-modeling",
+    "ai-coding-agent-guardrails", "incident-response",
+    "cost-optimization", "web-perf",
+    "makefile-generator", "makefile-validator",
+    "bash-script-generator", "bash-script-validator",
+    "claude-api",
+    "pre-deploy",
+    "improve-agent",
+    "skill-forge"
+  ]
+}
