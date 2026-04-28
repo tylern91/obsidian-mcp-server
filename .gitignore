@@ -22,7 +22,8 @@ coverage.html
 
 # Dev-workflow tooling (Serena AI, Claude Code) — not for public consumption
 .serena/
-.claude/
+.claude/*
+!.claude/settings.json
 
 # Secrets — never commit these
 .env
