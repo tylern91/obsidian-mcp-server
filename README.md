@@ -167,6 +167,12 @@ Add to `claude_desktop_config.json`:
 obsidian-mcp --vault /path/to/your/vault
 ```
 
+Print the version and exit:
+
+```bash
+obsidian-mcp --version
+```
+
 ## Configuration
 
 Configuration follows **CLI flag > environment variable > default** precedence.
@@ -174,6 +180,7 @@ Configuration follows **CLI flag > environment variable > default** precedence.
 | Flag | Env Var | Default | Valid values |
 | --- | --- | --- | --- |
 | `--vault` | `OBSIDIAN_VAULT_PATH` | *(required)* | Absolute or relative path to an existing directory. Validated at startup — non-existent paths or files (not dirs) cause an immediate error. Surrounding whitespace is trimmed. |
+| `--version` | — | — | Prints the binary version to stdout and exits. Does not require `--vault`. |
 | `--extensions` | `OBSIDIAN_EXTENSIONS` | `.md,.markdown,.txt,.canvas` | Comma-separated list. Each entry should start with `.` (e.g. `.md`). Whitespace around entries is trimmed; empty entries are discarded. Only files matching one of these extensions are visible to MCP tools. |
 | `--ignore` | `OBSIDIAN_IGNORE` | `.obsidian,.git,node_modules,.DS_Store,.trash` | Comma-separated list of file/directory names to skip during traversal. Match is by name (not glob). Whitespace trimmed; empties discarded. |
 | `--pretty` | `OBSIDIAN_PRETTY` | `false` | CLI: bare `--pretty` enables it. Env var: any value accepted by Go's `strconv.ParseBool` — `1`, `t`, `T`, `true`, `TRUE`, `True`, `0`, `f`, `F`, `false`, `FALSE`, `False`. Anything else causes a startup error. |

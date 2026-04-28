@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -288,6 +289,28 @@ func TestLoad_ErrorInvalidEnvVarPretty(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "OBSIDIAN_PRETTY") {
 		t.Errorf("error = %q, want mention of OBSIDIAN_PRETTY", err.Error())
+	}
+}
+
+func TestLoad_VersionFlagReturnsSentinel(t *testing.T) {
+	_, err := config.Load([]string{"--version"})
+	if !errors.Is(err, config.ErrVersionRequested) {
+		t.Fatalf("Load(--version) error = %v, want ErrVersionRequested", err)
+	}
+}
+
+func TestLoad_VersionFlagShortCircuitsValidation(t *testing.T) {
+	t.Setenv("OBSIDIAN_VAULT_PATH", "/nonexistent/path")
+	_, err := config.Load([]string{"--version"})
+	if !errors.Is(err, config.ErrVersionRequested) {
+		t.Fatalf("Load(--version) with bad vault env error = %v, want ErrVersionRequested", err)
+	}
+}
+
+func TestLoad_VersionFlagIgnoresOtherInvalidFlags(t *testing.T) {
+	_, err := config.Load([]string{"--max-batch", "0", "--version"})
+	if !errors.Is(err, config.ErrVersionRequested) {
+		t.Fatalf("Load(--max-batch 0 --version) error = %v, want ErrVersionRequested", err)
 	}
 }
 

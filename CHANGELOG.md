@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `--version` flag prints the binary version to stdout and exits without requiring `--vault`.
+
 ### Changed
 
 **Code quality / simplification pass**
