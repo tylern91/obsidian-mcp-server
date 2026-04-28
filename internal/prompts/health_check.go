@@ -3,7 +3,6 @@ package prompts
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -26,19 +25,13 @@ func vaultHealthCheckHandler(deps Deps) server.PromptHandlerFunc {
 		}
 
 		text := report + `
-
 Based on the audit above, please:
 1. Prioritize the top 10 most actionable hygiene fixes (explain why each matters)
 2. Identify which dangling links are likely typos vs. intentional placeholders
 3. Suggest tag groupings for the untagged notes based on their filenames/paths
 4. Flag any duplicate titles that are likely accidental vs. intentional variations`
 
-		return mcp.NewGetPromptResult(
-			"Vault hygiene audit and fix priorities",
-			[]mcp.PromptMessage{
-				mcp.NewPromptMessage(mcp.RoleUser, mcp.NewTextContent(text)),
-			},
-		), nil
+		return singleUserPrompt("Vault hygiene audit and fix priorities", text), nil
 	}
 }
 
@@ -61,7 +54,7 @@ func buildHealthReport(ctx context.Context, deps Deps) (string, error) {
 		links := vault.ExtractLinks(note.Content)
 		all[rel] = &noteData{tags: tags, links: links}
 
-		stem := strings.TrimSuffix(filepath.Base(rel), filepath.Ext(rel))
+		stem := vault.Stem(rel)
 		stems[stem] = append(stems[stem], rel)
 		return nil
 	})
@@ -72,8 +65,7 @@ func buildHealthReport(ctx context.Context, deps Deps) (string, error) {
 	// Build stem→path index for dangling-link detection.
 	stemToPath := make(map[string]string)
 	for rel := range all {
-		stem := strings.TrimSuffix(filepath.Base(rel), filepath.Ext(rel))
-		stemToPath[strings.ToLower(stem)] = rel
+		stemToPath[vault.StemLower(rel)] = rel
 	}
 
 	// Count incoming links per note.

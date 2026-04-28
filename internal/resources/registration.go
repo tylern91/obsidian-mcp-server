@@ -12,6 +12,7 @@ import (
 type VaultService interface {
 	ReadNote(ctx context.Context, path string) (*vault.Note, error)
 	AggregateTags(ctx context.Context) (map[string]int, error)
+	VaultStats(ctx context.Context, opts vault.VaultStatsOpts) (*vault.VaultStats, error)
 	GetBacklinks(ctx context.Context, targetPath string) ([]vault.Backlink, error)
 	WalkNotes(ctx context.Context, fn func(rel, abs string) error) error
 	Root() string

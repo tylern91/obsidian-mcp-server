@@ -218,7 +218,6 @@ func readDoc(rel, abs string, terms []string, opts BM25Options) (*docContent, er
 	}
 	dc.allTokens = Tokenize(combined)
 
-	// Build term frequency map for individual tokens.
 	for _, tok := range dc.allTokens {
 		dc.termFreq[tok]++
 	}
@@ -421,12 +420,10 @@ func (s *Service) SearchBM25(ctx context.Context, opts BM25Options) ([]BM25Resul
 		})
 	}
 
-	// Sort by score descending.
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].Score > results[j].Score
 	})
 
-	// Apply limit.
 	if len(results) > limit {
 		results = results[:limit]
 	}

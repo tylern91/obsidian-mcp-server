@@ -2,15 +2,15 @@ package resources
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"os"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/tylern91/obsidian-mcp-server/internal/response"
+	"github.com/tylern91/obsidian-mcp-server/internal/vault"
 )
 
 const resourceCacheTTL = 30 * time.Second
@@ -43,52 +43,21 @@ func computeVaultStats(ctx context.Context, deps Deps) ([]mcp.ResourceContents, 
 		VaultRoot  string   `json:"vaultRoot"`
 	}
 
-	var noteCount int
-	var totalBytes int64
-
-	err := deps.Vault.WalkNotes(ctx, func(_, abs string) error {
-		info, statErr := os.Stat(abs)
-		if statErr != nil {
-			return nil
-		}
-		noteCount++
-		totalBytes += info.Size()
-		return nil
-	})
+	vs, err := deps.Vault.VaultStats(ctx, vault.VaultStatsOpts{})
 	if err != nil {
 		return resourceError("obsidian://vault/stats", fmt.Sprintf("vault walk failed: %v", err)), nil
 	}
 
-	tagCounts, err := deps.Vault.AggregateTags(ctx)
-	if err != nil {
-		tagCounts = map[string]int{}
-	}
-
-	type tagEntry struct {
-		name  string
-		count int
-	}
-	var entries []tagEntry
-	for name, count := range tagCounts {
-		entries = append(entries, tagEntry{name, count})
-	}
-	sort.Slice(entries, func(i, j int) bool {
-		if entries[i].count != entries[j].count {
-			return entries[i].count > entries[j].count
-		}
-		return entries[i].name < entries[j].name
-	})
-	top := make([]string, 0, 10)
-	for i, e := range entries {
-		if i >= 10 {
-			break
-		}
-		top = append(top, fmt.Sprintf("%s (%d)", e.name, e.count))
+	topEntries := vault.TopTagsByCount(vs.TagCounts, 10)
+	top := make([]string, 0, len(topEntries))
+	for _, tc := range topEntries {
+		top = append(top, fmt.Sprintf("%s (%d)", tc.Name, tc.Count))
 	}
 
 	stats := statsResult{
-		NoteCount:  noteCount,
-		TotalBytes: totalBytes,
+		NoteCount:  vs.NoteCount,
+		TotalBytes: vs.TotalBytes,
+		TotalLinks: vs.TotalLinks,
 		TopTags:    top,
 		VaultRoot:  deps.Vault.Root(),
 	}
@@ -128,24 +97,11 @@ func computeVaultTags(ctx context.Context, deps Deps) ([]mcp.ResourceContents, e
 		return resourceError("obsidian://vault/tags", fmt.Sprintf("tag aggregation failed: %v", err)), nil
 	}
 
-	type tagEntry struct {
-		Name  string `json:"name"`
-		Count int    `json:"count"`
-	}
-	var entries []tagEntry
-	for name, count := range tagCounts {
-		entries = append(entries, tagEntry{name, count})
-	}
-	sort.Slice(entries, func(i, j int) bool {
-		if entries[i].Count != entries[j].Count {
-			return entries[i].Count > entries[j].Count
-		}
-		return entries[i].Name < entries[j].Name
-	})
+	entries := vault.TopTagsByCount(tagCounts, 0)
 
 	type tagsResult struct {
-		Tags  []tagEntry `json:"tags"`
-		Total int        `json:"total"`
+		Tags  []vault.TagCount `json:"tags"`
+		Total int              `json:"total"`
 	}
 	text, err := response.FormatJSON(tagsResult{Tags: entries, Total: len(entries)}, deps.PrettyPrint)
 	if err != nil {
@@ -160,20 +116,12 @@ func computeVaultTags(ctx context.Context, deps Deps) ([]mcp.ResourceContents, e
 
 // resourceError returns a JSON error payload as a resource result.
 func resourceError(uri, msg string) []mcp.ResourceContents {
-	body := fmt.Sprintf(`{"error":%s}`, jsonString(msg))
+	b, _ := json.Marshal(map[string]string{"error": msg, "uri": uri})
 	return []mcp.ResourceContents{mcp.TextResourceContents{
 		URI:      uri,
 		MIMEType: "application/json",
-		Text:     body,
+		Text:     string(b),
 	}}
-}
-
-// jsonString returns a JSON-encoded string literal.
-func jsonString(s string) string {
-	s = strings.ReplaceAll(s, `\`, `\\`)
-	s = strings.ReplaceAll(s, `"`, `\"`)
-	s = strings.ReplaceAll(s, "\n", `\n`)
-	return `"` + s + `"`
 }
 
 // pathFromURI extracts the path component after the given prefix from a resource URI.

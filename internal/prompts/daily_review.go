@@ -61,11 +61,6 @@ func dailyNoteReviewHandler(deps Deps) server.PromptHandlerFunc {
 3. Flag any missing tags that seem relevant given the content
 4. Note any patterns or themes worth tracking over time`)
 
-		return mcp.NewGetPromptResult(
-			"Daily note review",
-			[]mcp.PromptMessage{
-				mcp.NewPromptMessage(mcp.RoleUser, mcp.NewTextContent(sb.String())),
-			},
-		), nil
+		return singleUserPrompt("Daily note review", sb.String()), nil
 	}
 }

@@ -51,7 +51,7 @@ func getPeriodicNoteHandler(deps Deps) server.ToolHandlerFunc {
 		note, readErr := deps.Vault.ReadNote(ctx, resolvedPath)
 		if readErr != nil {
 			if createIfMissing {
-				if writeErr := deps.Vault.WriteNote(ctx, resolvedPath, "", vault.WriteMode("overwrite")); writeErr != nil {
+				if writeErr := deps.Vault.WriteNote(ctx, resolvedPath, "", vault.WriteModeOverwrite); writeErr != nil {
 					return mcp.NewToolResultError("create periodic note: " + writeErr.Error()), nil
 				}
 				note, readErr = deps.Vault.ReadNote(ctx, resolvedPath)

@@ -71,11 +71,6 @@ func weeklyReviewHandler(deps Deps) server.PromptHandlerFunc {
 4. Patterns worth tracking (recurring blockers, mood, energy, focus areas)
 5. 2–3 concrete suggestions for next week`)
 
-		return mcp.NewGetPromptResult(
-			"Weekly retrospective from daily notes",
-			[]mcp.PromptMessage{
-				mcp.NewPromptMessage(mcp.RoleUser, mcp.NewTextContent(sb.String())),
-			},
-		), nil
+		return singleUserPrompt("Weekly retrospective from daily notes", sb.String()), nil
 	}
 }

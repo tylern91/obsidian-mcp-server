@@ -13,3 +13,10 @@ func errorPrompt(msg string) *mcp.GetPromptResult {
 		},
 	)
 }
+
+// singleUserPrompt wraps a single user-role text message into a GetPromptResult.
+func singleUserPrompt(title, body string) *mcp.GetPromptResult {
+	return mcp.NewGetPromptResult(title, []mcp.PromptMessage{
+		mcp.NewPromptMessage(mcp.RoleUser, mcp.NewTextContent(body)),
+	})
+}

@@ -354,7 +354,6 @@ func (s *Service) ListDirectory(ctx context.Context, path string) ([]DirEntry, e
 	for _, entry := range rawEntries {
 		name := entry.Name()
 
-		// Compute relPath first so filter checks the full relative path.
 		var relPath string
 		if path == "" {
 			relPath = name
@@ -362,14 +361,12 @@ func (s *Service) ListDirectory(ctx context.Context, path string) ([]DirEntry, e
 			relPath = filepath.Join(path, name)
 		}
 
-		// Skip ignored entries using the full relative path.
 		if s.filter != nil && s.filter.IsIgnored(relPath) {
 			continue
 		}
 
 		info, err := entry.Info()
 		if err != nil {
-			// Skip entries we can't stat.
 			continue
 		}
 
@@ -408,11 +405,10 @@ func (s *Service) StatNote(ctx context.Context, path string) (*NoteInfo, error) 
 	}
 
 	// Parse frontmatter directly from the already-read content (no second read).
-	rawFM, body, hasFM := SplitFrontmatter(note.Content)
+	rawFM, _, hasFM := SplitFrontmatter(note.Content)
 
-	// Parse frontmatter once; extract title and tags from the same map.
+	// Extract title from frontmatter; fall back to filename stem.
 	title := ""
-	var fmTags []string
 	if hasFM {
 		if fm, fmErr := ParseFrontmatter(rawFM); fmErr == nil {
 			if v, ok := fm["title"]; ok {
@@ -420,31 +416,13 @@ func (s *Service) StatNote(ctx context.Context, path string) (*NoteInfo, error) 
 					title = titleStr
 				}
 			}
-			fmTags = ExtractFrontmatterTags(fm)
 		}
 	}
-	// Fall back to filename stem.
 	if title == "" {
-		base := filepath.Base(path)
-		title = strings.TrimSuffix(base, filepath.Ext(base))
+		title = Stem(path)
 	}
-	inlineTags := ExtractInlineTags(body)
 
-	// Merge: frontmatter tags first, then inline-only tags.
-	seen := make(map[string]struct{}, len(fmTags)+len(inlineTags))
-	tags := make([]string, 0, len(fmTags)+len(inlineTags))
-	for _, t := range fmTags {
-		if _, dup := seen[t]; !dup {
-			seen[t] = struct{}{}
-			tags = append(tags, t)
-		}
-	}
-	for _, t := range inlineTags {
-		if _, dup := seen[t]; !dup {
-			seen[t] = struct{}{}
-			tags = append(tags, t)
-		}
-	}
+	tags := MergeNoteTags([]byte(note.Content))
 
 	// Links: extract from the full note content (wikilinks span the whole file).
 	links := ExtractLinks(note.Content)

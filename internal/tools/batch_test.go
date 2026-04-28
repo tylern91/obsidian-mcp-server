@@ -639,7 +639,7 @@ func TestGetVaultStatsHandler_TopTags(t *testing.T) {
 	var resp struct {
 		TotalTags int `json:"totalTags"`
 		TopTags   []struct {
-			Tag   string `json:"tag"`
+			Name  string `json:"name"`
 			Count int    `json:"count"`
 		} `json:"topTags"`
 	}
@@ -655,8 +655,8 @@ func TestGetVaultStatsHandler_TopTags(t *testing.T) {
 	}
 	// If there are tags, each entry should have tag and count > 0
 	for i, tt := range resp.TopTags {
-		if tt.Tag == "" {
-			t.Errorf("topTags[%d].tag is empty", i)
+		if tt.Name == "" {
+			t.Errorf("topTags[%d].name is empty", i)
 		}
 		if tt.Count <= 0 {
 			t.Errorf("topTags[%d].count = %d, want > 0", i, tt.Count)

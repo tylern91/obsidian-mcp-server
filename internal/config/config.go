@@ -56,59 +56,19 @@ func Load(args []string) (*Config, error) {
 	}
 
 	// Apply environment variable overrides for flags that were NOT explicitly set.
-	if !explicitFlags["vault"] {
-		if v := os.Getenv("OBSIDIAN_VAULT_PATH"); v != "" {
-			cfg.VaultPath = v
-		}
+	envString(explicitFlags, "vault", "OBSIDIAN_VAULT_PATH", &cfg.VaultPath)
+	envStringSlice(explicitFlags, "extensions", "OBSIDIAN_EXTENSIONS", &cfg.Extensions)
+	envStringSlice(explicitFlags, "ignore", "OBSIDIAN_IGNORE", &cfg.IgnorePatterns)
+	if err := envBool(explicitFlags, "pretty", "OBSIDIAN_PRETTY", &cfg.PrettyPrint); err != nil {
+		return nil, err
 	}
-
-	if !explicitFlags["extensions"] {
-		if v := os.Getenv("OBSIDIAN_EXTENSIONS"); v != "" {
-			cfg.Extensions = splitTrimmed(v)
-		}
+	if err := envInt(explicitFlags, "max-batch", "OBSIDIAN_MAX_BATCH", &cfg.MaxBatch); err != nil {
+		return nil, err
 	}
-
-	if !explicitFlags["ignore"] {
-		if v := os.Getenv("OBSIDIAN_IGNORE"); v != "" {
-			cfg.IgnorePatterns = splitTrimmed(v)
-		}
+	if err := envInt(explicitFlags, "max-results", "OBSIDIAN_MAX_RESULTS", &cfg.MaxResults); err != nil {
+		return nil, err
 	}
-
-	if !explicitFlags["pretty"] {
-		if v := os.Getenv("OBSIDIAN_PRETTY"); v != "" {
-			b, err := strconv.ParseBool(v)
-			if err != nil {
-				return nil, fmt.Errorf("invalid OBSIDIAN_PRETTY value %q: %w", v, err)
-			}
-			cfg.PrettyPrint = b
-		}
-	}
-
-	if !explicitFlags["max-batch"] {
-		if v := os.Getenv("OBSIDIAN_MAX_BATCH"); v != "" {
-			n, err := strconv.Atoi(v)
-			if err != nil {
-				return nil, fmt.Errorf("invalid OBSIDIAN_MAX_BATCH value %q: %w", v, err)
-			}
-			cfg.MaxBatch = n
-		}
-	}
-
-	if !explicitFlags["max-results"] {
-		if v := os.Getenv("OBSIDIAN_MAX_RESULTS"); v != "" {
-			n, err := strconv.Atoi(v)
-			if err != nil {
-				return nil, fmt.Errorf("invalid OBSIDIAN_MAX_RESULTS value %q: %w", v, err)
-			}
-			cfg.MaxResults = n
-		}
-	}
-
-	if !explicitFlags["log-level"] {
-		if v := os.Getenv("OBSIDIAN_LOG_LEVEL"); v != "" {
-			cfg.LogLevel = v
-		}
-	}
+	envString(explicitFlags, "log-level", "OBSIDIAN_LOG_LEVEL", &cfg.LogLevel)
 
 	// Normalize LogLevel: default to "warn" if unrecognized, and record the bad value.
 	switch cfg.LogLevel {
@@ -168,4 +128,54 @@ func splitTrimmed(s string) []string {
 		}
 	}
 	return out
+}
+
+// envString sets *dst to the value of the environment variable env when the
+// flag was not explicitly provided by the caller.
+func envString(explicit map[string]bool, flag, env string, dst *string) {
+	if !explicit[flag] {
+		if v := os.Getenv(env); v != "" {
+			*dst = v
+		}
+	}
+}
+
+// envStringSlice sets *dst to the splitTrimmed value of env when the flag was
+// not explicitly provided by the caller.
+func envStringSlice(explicit map[string]bool, flag, env string, dst *[]string) {
+	if !explicit[flag] {
+		if v := os.Getenv(env); v != "" {
+			*dst = splitTrimmed(v)
+		}
+	}
+}
+
+// envBool sets *dst to the parsed boolean value of env when the flag was not
+// explicitly provided. Returns an error if the env value cannot be parsed.
+func envBool(explicit map[string]bool, flag, env string, dst *bool) error {
+	if !explicit[flag] {
+		if v := os.Getenv(env); v != "" {
+			b, err := strconv.ParseBool(v)
+			if err != nil {
+				return fmt.Errorf("invalid %s value %q: %w", env, v, err)
+			}
+			*dst = b
+		}
+	}
+	return nil
+}
+
+// envInt sets *dst to the parsed integer value of env when the flag was not
+// explicitly provided. Returns an error if the env value cannot be parsed.
+func envInt(explicit map[string]bool, flag, env string, dst *int) error {
+	if !explicit[flag] {
+		if v := os.Getenv(env); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				return fmt.Errorf("invalid %s value %q: %w", env, v, err)
+			}
+			*dst = n
+		}
+	}
+	return nil
 }

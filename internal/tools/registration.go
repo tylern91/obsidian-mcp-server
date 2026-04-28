@@ -33,6 +33,7 @@ type VaultService interface {
 	StatNote(ctx context.Context, path string) (*vault.NoteInfo, error)
 
 	WalkNotes(ctx context.Context, fn func(rel, abs string) error) error
+	VaultStats(ctx context.Context, opts vault.VaultStatsOpts) (*vault.VaultStats, error)
 	Root() string
 }
 

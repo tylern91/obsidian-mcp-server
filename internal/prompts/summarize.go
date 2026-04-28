@@ -43,11 +43,6 @@ Note content:
 %s
 ---`, note.Path, note.Content)
 
-		return mcp.NewGetPromptResult(
-			"Summarize an Obsidian note",
-			[]mcp.PromptMessage{
-				mcp.NewPromptMessage(mcp.RoleUser, mcp.NewTextContent(text)),
-			},
-		), nil
+		return singleUserPrompt("Summarize an Obsidian note", text), nil
 	}
 }

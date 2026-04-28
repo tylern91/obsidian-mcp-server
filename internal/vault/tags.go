@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -73,6 +74,41 @@ func ExtractFrontmatterTags(fm map[string]any) []string {
 		}
 	}
 
+	return out
+}
+
+// MergeNoteTags returns the deduplicated union of frontmatter and inline tags in
+// note content. Frontmatter tags appear first (in declared order), inline tags
+// follow (in document order). Deduplication is exact-string, case-sensitive,
+// matching Obsidian's treatment of #TODO and #todo as distinct tags.
+//
+// Frontmatter parse errors are silently ignored and fall back to inline tags only.
+// Callers that need parse-error visibility should call SplitFrontmatter +
+// ParseFrontmatter directly.
+func MergeNoteTags(content []byte) []string {
+	rawFM, body, hasFM := SplitFrontmatter(string(content))
+	var fmTags []string
+	if hasFM {
+		if fm, err := ParseFrontmatter(rawFM); err == nil {
+			fmTags = ExtractFrontmatterTags(fm)
+		}
+	}
+	inlineTags := ExtractInlineTags(body)
+
+	seen := make(map[string]struct{}, len(fmTags)+len(inlineTags))
+	out := make([]string, 0, len(fmTags)+len(inlineTags))
+	for _, t := range fmTags {
+		if _, dup := seen[t]; !dup {
+			seen[t] = struct{}{}
+			out = append(out, t)
+		}
+	}
+	for _, t := range inlineTags {
+		if _, dup := seen[t]; !dup {
+			seen[t] = struct{}{}
+			out = append(out, t)
+		}
+	}
 	return out
 }
 
@@ -481,4 +517,30 @@ func (s *Service) AggregateTags(ctx context.Context) (map[string]int, error) {
 	}
 
 	return counts, nil
+}
+
+// TagCount is a tag name with its occurrence count.
+type TagCount struct {
+	Name  string `json:"name"`
+	Count int    `json:"count"`
+}
+
+// TopTagsByCount returns up to limit entries from counts, sorted by Count
+// descending and Name ascending as tiebreaker. If limit <= 0 or limit
+// exceeds len(counts), all entries are returned.
+func TopTagsByCount(counts map[string]int, limit int) []TagCount {
+	out := make([]TagCount, 0, len(counts))
+	for name, count := range counts {
+		out = append(out, TagCount{Name: name, Count: count})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return out[i].Name < out[j].Name
+	})
+	if limit > 0 && limit < len(out) {
+		out = out[:limit]
+	}
+	return out
 }
