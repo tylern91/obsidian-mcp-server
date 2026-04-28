@@ -20,6 +20,7 @@ var tagRegex = regexp.MustCompile(`(?m)(?:^|[^\p{L}\p{N}_/])#([\p{L}\p{N}_/\-]+)
 // ExtractInlineTags returns all unique inline #tags found in body text.
 // Tags are returned in the order first encountered, case-sensitively deduped
 // (Obsidian treats #TODO and #todo as distinct tags).
+// Trailing '-' and '/' are trimmed to match Obsidian's own trimming behavior.
 //
 // Code-fenced regions (``` ... ``` and ~~~ ... ~~~) and inline backtick spans
 // are excluded from matching so that tags inside code blocks are not counted.
@@ -31,7 +32,10 @@ func ExtractInlineTags(body string) []string {
 	out := make([]string, 0, len(matches))
 
 	for _, m := range matches {
-		tag := m[1]
+		tag := strings.TrimRight(m[1], "-/")
+		if tag == "" {
+			continue
+		}
 		if _, dup := seen[tag]; !dup {
 			seen[tag] = struct{}{}
 			out = append(out, tag)
@@ -144,12 +148,12 @@ func (s *Service) AddTag(ctx context.Context, path, tag, location string) error 
 		return &PathError{Op: "add_tag", Path: path, Err: statErr}
 	}
 
-	if _, err := s.resolveSymlink("add_tag", path, absPath); err != nil {
-		return err
-	}
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if err := s.checkSymlinksForWrite("add_tag", path, absPath); err != nil {
+		return err
+	}
 
 	data, err := os.ReadFile(absPath)
 	if err != nil {
@@ -284,12 +288,12 @@ func (s *Service) RemoveTag(ctx context.Context, path, tag string) error {
 		return &PathError{Op: "remove_tag", Path: path, Err: statErr}
 	}
 
-	if _, err := s.resolveSymlink("remove_tag", path, absPath); err != nil {
-		return err
-	}
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if err := s.checkSymlinksForWrite("remove_tag", path, absPath); err != nil {
+		return err
+	}
 
 	data, err := os.ReadFile(absPath)
 	if err != nil {

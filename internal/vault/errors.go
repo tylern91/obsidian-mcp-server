@@ -16,6 +16,7 @@ var (
 	ErrPathRestricted     = errors.New("path is restricted")
 	ErrInvalidFrontmatter = errors.New("invalid frontmatter")
 	ErrHeadingNotFound    = errors.New("heading not found")
+	ErrFileTooLarge       = errors.New("file exceeds maximum allowed size")
 )
 
 // PathError records an error and the path and operation that caused it.

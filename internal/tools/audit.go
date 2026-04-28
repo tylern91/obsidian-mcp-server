@@ -13,6 +13,10 @@ import (
 	"github.com/tylern91/obsidian-mcp-server/internal/vault"
 )
 
+// maxAuditNotes caps the number of notes scanned in a single audit_notes call
+// to prevent unbounded memory growth on very large vaults.
+const maxAuditNotes = 10_000
+
 // auditEntry is a single finding in an audit class result.
 type auditEntry struct {
 	Path   string `json:"path"`
@@ -82,6 +86,10 @@ func auditNotesHandler(deps Deps) server.ToolHandlerFunc {
 		}
 
 		walkErr := deps.Vault.WalkNotes(ctx, func(rel, abs string) error {
+			if len(ad.allPaths) >= maxAuditNotes {
+				return filepath.SkipAll
+			}
+
 			ad.allPaths[rel] = true
 
 			// Build stem→path map for link resolution (case-insensitive, no extension).

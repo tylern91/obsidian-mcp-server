@@ -29,21 +29,12 @@ func (s *Service) PatchNote(ctx context.Context, path string, p PatchOp) error {
 		return err
 	}
 
-	// Symlink checks before locking.
-	parentDir := filepath.Dir(absPath)
-	if _, statErr := os.Stat(parentDir); statErr == nil {
-		if _, err := s.resolveSymlink("patch", path, parentDir); err != nil {
-			return err
-		}
-	}
-	if info, statErr := os.Lstat(absPath); statErr == nil && info.Mode()&os.ModeSymlink != 0 {
-		if _, err := s.resolveSymlink("patch", path, absPath); err != nil {
-			return err
-		}
-	}
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if err := s.checkSymlinksForWrite("patch", path, absPath); err != nil {
+		return err
+	}
 
 	data, err := os.ReadFile(absPath)
 	if err != nil {
@@ -121,7 +112,8 @@ func headingLevel(line string) string {
 	return line[:len(line)-len(trimmed)]
 }
 
-// splitLines splits content into lines, preserving the trailing-newline convention.
+// splitLines splits content into lines, removing any trailing empty element
+// produced by a trailing newline.
 func splitLines(content string) []string {
 	if content == "" {
 		return nil
@@ -150,23 +142,12 @@ func (s *Service) DeleteNote(ctx context.Context, path, confirm string) error {
 		return err
 	}
 
-	// Symlink escape check on parent dir.
-	parentDir := filepath.Dir(absPath)
-	if _, statErr := os.Stat(parentDir); statErr == nil {
-		if _, err := s.resolveSymlink("delete", path, parentDir); err != nil {
-			return err
-		}
-	}
-
-	// Symlink escape check on the file itself.
-	if info, statErr := os.Lstat(absPath); statErr == nil && info.Mode()&os.ModeSymlink != 0 {
-		if _, err := s.resolveSymlink("delete", path, absPath); err != nil {
-			return err
-		}
-	}
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if err := s.checkSymlinksForWrite("delete", path, absPath); err != nil {
+		return err
+	}
 
 	if err := os.Remove(absPath); err != nil {
 		if os.IsNotExist(err) {
@@ -180,6 +161,7 @@ func (s *Service) DeleteNote(ctx context.Context, path, confirm string) error {
 // MoveNote moves a note from src to dst within the vault.
 // confirm must equal src exactly, otherwise ErrConfirmMismatch is returned.
 // Returns ErrAlreadyExists if dst already exists.
+// Note: confirm binds to src only; a typo in dst moves the note to the wrong location.
 func (s *Service) MoveNote(ctx context.Context, src, dst, confirm string) error {
 	if err := ctx.Err(); err != nil {
 		return &PathError{Op: "move", Path: src, Err: err}
@@ -204,32 +186,17 @@ func (s *Service) MoveNote(ctx context.Context, src, dst, confirm string) error 
 		return &PathError{Op: "move", Path: dst, Err: ErrAlreadyExists}
 	}
 
-	// Symlink check on src parent.
-	srcParent := filepath.Dir(srcAbs)
-	if _, statErr := os.Stat(srcParent); statErr == nil {
-		if _, err := s.resolveSymlink("move", src, srcParent); err != nil {
-			return err
-		}
-	}
-
-	// Symlink check on src file itself.
-	if info, statErr := os.Lstat(srcAbs); statErr == nil && info.Mode()&os.ModeSymlink != 0 {
-		if _, err := s.resolveSymlink("move", src, srcAbs); err != nil {
-			return err
-		}
-	}
-
-	// Symlink check on dst parent (if it exists).
-	dstParent := filepath.Dir(dstAbs)
-	if _, statErr := os.Stat(dstParent); statErr == nil {
-		if _, err := s.resolveSymlink("move", dst, dstParent); err != nil {
-			return err
-		}
-	}
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if err := s.checkSymlinksForWrite("move", src, srcAbs); err != nil {
+		return err
+	}
+	if err := s.checkSymlinksForWrite("move", dst, dstAbs); err != nil {
+		return err
+	}
+
+	dstParent := filepath.Dir(dstAbs)
 	if err := os.MkdirAll(dstParent, 0755); err != nil {
 		return &PathError{Op: "move", Path: dst, Err: err}
 	}

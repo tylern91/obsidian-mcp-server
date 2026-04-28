@@ -157,11 +157,11 @@ func TestGetRecentChangesHandler_Ordering(t *testing.T) {
 	}
 }
 
-func TestGetRecentChangesHandler_SummaryFalse(t *testing.T) {
+func TestGetRecentChangesHandler_SummaryTrue(t *testing.T) {
 	deps := testDeps(t)
 	handler := tools.RecentChangesHandler(deps)
 
-	result, err := handler(context.Background(), makeRequest("limit", "2", "summary", "false"))
+	result, err := handler(context.Background(), makeRequest("limit", "2", "summary", "true"))
 	require.NoError(t, err)
 	require.False(t, result.IsError, "expected success: %v", result.Content)
 
@@ -171,7 +171,7 @@ func TestGetRecentChangesHandler_SummaryFalse(t *testing.T) {
 	assert.Greater(t, resp.Count, 0)
 
 	for _, n := range resp.Notes {
-		assert.NotNil(t, n.HeadOf, "headOf should be present when summary=false")
+		assert.NotNil(t, n.HeadOf, "headOf should be present when summary=true")
 		if n.HeadOf != nil {
 			assert.NotEmpty(t, *n.HeadOf)
 		}

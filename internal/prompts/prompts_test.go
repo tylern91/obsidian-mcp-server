@@ -142,32 +142,6 @@ func TestVaultHealthCheck_ReturnsReport(t *testing.T) {
 	}
 }
 
-// --- extractWikilinks ---
-
-func TestExtractWikilinks(t *testing.T) {
-	cases := []struct {
-		content string
-		want    []string
-	}{
-		{"[[Foo]] and [[Bar]]", []string{"Foo", "Bar"}},
-		{"[[Note|Alias]]", []string{"Note"}},
-		{"no links here", nil},
-		{"[[Dup]] and [[Dup]]", []string{"Dup"}}, // deduped
-	}
-	for _, tc := range cases {
-		got := prompts.ExtractWikilinks(tc.content)
-		if len(got) != len(tc.want) {
-			t.Errorf("content=%q: got %v, want %v", tc.content, got, tc.want)
-			continue
-		}
-		for i := range tc.want {
-			if got[i] != tc.want[i] {
-				t.Errorf("content=%q index %d: got %q, want %q", tc.content, i, got[i], tc.want[i])
-			}
-		}
-	}
-}
-
 // --- daily_note_review (with stub periodic service) ---
 
 type stubPeriodic struct {

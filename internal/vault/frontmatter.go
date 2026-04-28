@@ -120,12 +120,12 @@ func (s *Service) UpdateFrontmatter(ctx context.Context, path string, updates ma
 		return &PathError{Op: "update_frontmatter", Path: path, Err: statErr}
 	}
 
-	if _, err := s.resolveSymlink("update_frontmatter", path, absPath); err != nil {
-		return err
-	}
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if err := s.checkSymlinksForWrite("update_frontmatter", path, absPath); err != nil {
+		return err
+	}
 
 	data, err := os.ReadFile(absPath)
 	if err != nil {

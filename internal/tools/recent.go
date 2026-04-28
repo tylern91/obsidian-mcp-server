@@ -24,7 +24,7 @@ func registerGetRecentChanges(s *server.MCPServer, deps Deps) {
 			mcp.Description("Only include notes modified on or after this date (ISO-8601, e.g. \"2024-01-01\")"),
 		),
 		mcp.WithBoolean("summary",
-			mcp.Description("When false, include the first 200 characters of each note (default: true)"),
+			mcp.Description("When true, include the first 200 characters of each note (default: false)"),
 		),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
@@ -58,8 +58,8 @@ func recentChangesHandler(deps Deps) server.ToolHandlerFunc {
 			}
 		}
 
-		// Parse summary flag (default true).
-		summary := req.GetBool("summary", true)
+		// Parse summary flag (default false).
+		summary := req.GetBool("summary", false)
 
 		// Collect all entries via WalkNotes.
 		type entry struct {
@@ -109,7 +109,7 @@ func recentChangesHandler(deps Deps) server.ToolHandlerFunc {
 				Path:    e.rel,
 				ModTime: e.modTime.Format(time.RFC3339),
 			}
-			if !summary {
+			if summary {
 				data, readErr := os.ReadFile(e.abs)
 				if readErr == nil {
 					head := response.HeadRunes(string(data), 200)

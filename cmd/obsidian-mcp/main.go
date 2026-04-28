@@ -34,6 +34,10 @@ func run(args []string) error {
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: cfg.SlogLevel()}))
 	slog.SetDefault(logger)
 
+	if cfg.InvalidLogLevel != "" {
+		slog.Warn("unrecognized log level, defaulting to warn", "given", cfg.InvalidLogLevel)
+	}
+
 	slog.Info("starting obsidian-mcp server",
 		"vault", cfg.VaultPath,
 		"extensions", cfg.Extensions,
@@ -72,6 +76,6 @@ func run(args []string) error {
 		PrettyPrint: cfg.PrettyPrint,
 	})
 
-	slog.Info("registered capabilities", "tools", 20, "prompts", 5, "resources", 5)
+	slog.Info("registered capabilities")
 	return mcpserver.ServeStdio(s)
 }

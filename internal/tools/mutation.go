@@ -127,7 +127,7 @@ func deleteNoteHandler(deps Deps) server.ToolHandlerFunc {
 
 func registerMoveNote(s *server.MCPServer, deps Deps) {
 	tool := mcp.NewTool("move_note",
-		mcp.WithDescription("Move or rename a note within the vault. Creates intermediate directories as needed. Requires confirm to match src."),
+		mcp.WithDescription("Move or rename a note within the vault. Creates intermediate directories as needed. Requires confirm to match src exactly. Note: confirm guards the source path only; verify dst carefully before submitting."),
 		mcp.WithString("src",
 			mcp.Required(),
 			mcp.Description("Source path of the note relative to the vault root"),

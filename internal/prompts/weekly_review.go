@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -39,10 +38,6 @@ func weeklyReviewHandler(deps Deps) server.PromptHandlerFunc {
 			return errorPrompt(fmt.Sprintf("could not resolve daily dates: %v", err)), nil
 		}
 		// Take only the 7 most relevant dates (shifted window).
-		start := weekOffset * -7
-		if start < 0 {
-			start = 0
-		}
 		window := dates
 		if len(window) > 7 {
 			window = window[:7]
@@ -52,8 +47,8 @@ func weeklyReviewHandler(deps Deps) server.PromptHandlerFunc {
 		sb.WriteString("You are producing a weekly retrospective from an Obsidian vault's daily notes.\n\n")
 
 		found := 0
-		for _, d := range window {
-			dayPath, err := deps.Periodic.Resolve("daily", int(time.Since(d).Hours()/-24))
+		for i, d := range window {
+			dayPath, err := deps.Periodic.Resolve("daily", -i)
 			if err != nil {
 				continue
 			}

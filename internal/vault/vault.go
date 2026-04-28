@@ -29,6 +29,9 @@ const (
 	WriteModePrepend   WriteMode = "prepend"   // prepend to start
 )
 
+// maxFileSizeBytes caps the size of a note that ReadNote will load into memory.
+const maxFileSizeBytes int64 = 16 * 1024 * 1024 // 16 MB
+
 // DirEntry represents a file or directory in the vault.
 type DirEntry struct {
 	Name    string // filename (not full path)
@@ -111,6 +114,24 @@ func (s *Service) resolveSymlink(op, relativePath, absPath string) (string, erro
 	return resolved, nil
 }
 
+// checkSymlinksForWrite verifies that neither the parent directory nor the file
+// itself (when it exists as a symlink) escape the vault boundary.
+// Must be called while holding s.mu.
+func (s *Service) checkSymlinksForWrite(op, path, absPath string) error {
+	parentDir := filepath.Dir(absPath)
+	if _, statErr := os.Stat(parentDir); statErr == nil {
+		if _, err := s.resolveSymlink(op, path, parentDir); err != nil {
+			return err
+		}
+	}
+	if info, statErr := os.Lstat(absPath); statErr == nil && info.Mode()&os.ModeSymlink != 0 {
+		if _, err := s.resolveSymlink(op, path, absPath); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // ResolvePath returns the absolute path for a relative vault path.
 // It applies security checks in order: lexical, filter, existence, symlink.
 func (s *Service) ResolvePath(relativePath string) (string, error) {
@@ -177,6 +198,7 @@ func (s *Service) existenceCheck(relativePath, absPath string) (string, error) {
 
 // ReadNote reads a note at the given relative path and returns its content and metadata.
 // It uses a single file descriptor for consistent size/modTime vs content.
+// Returns ErrFileTooLarge if the file exceeds maxFileSizeBytes.
 func (s *Service) ReadNote(ctx context.Context, path string) (*Note, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, &PathError{Op: "read", Path: path, Err: err}
@@ -198,6 +220,10 @@ func (s *Service) ReadNote(ctx context.Context, path string) (*Note, error) {
 		return nil, &PathError{Op: "read", Path: path, Err: err}
 	}
 
+	if info.Size() > maxFileSizeBytes {
+		return nil, &PathError{Op: "read", Path: path, Err: ErrFileTooLarge}
+	}
+
 	data, err := io.ReadAll(f)
 	if err != nil {
 		return nil, &PathError{Op: "read", Path: path, Err: err}
@@ -216,9 +242,15 @@ func (s *Service) ReadNote(ctx context.Context, path string) (*Note, error) {
 // The write mode controls whether the content is overwritten, appended, or prepended.
 // WriteNote does NOT apply extension filtering — any file that passes the ignore
 // filter may be written.
+// Returns ErrFileTooLarge if the content exceeds maxFileSizeBytes.
 func (s *Service) WriteNote(ctx context.Context, path, content string, mode WriteMode) error {
 	if err := ctx.Err(); err != nil {
 		return &PathError{Op: "write", Path: path, Err: err}
+	}
+
+	// Reject oversized content before acquiring the lock.
+	if int64(len(content)) > maxFileSizeBytes {
+		return &PathError{Op: "write", Path: path, Err: ErrFileTooLarge}
 	}
 
 	_, absPath, err := s.sanitizePath("write", path)
@@ -226,26 +258,16 @@ func (s *Service) WriteNote(ctx context.Context, path, content string, mode Writ
 		return err
 	}
 
-	parentDir := filepath.Dir(absPath)
-
-	// Symlink escape check on parent directory (if it exists).
-	// Uses os.Stat to follow symlinks — a symlinked parent resolves to its target.
-	if _, statErr := os.Stat(parentDir); statErr == nil {
-		if _, err := s.resolveSymlink("write", path, parentDir); err != nil {
-			return err
-		}
-	}
-
-	// Symlink escape check on the file itself (if it exists as a symlink).
-	if info, statErr := os.Lstat(absPath); statErr == nil && info.Mode()&os.ModeSymlink != 0 {
-		if _, err := s.resolveSymlink("write", path, absPath); err != nil {
-			return err
-		}
-	}
-
 	// Lock for all write modes to prevent concurrent write data loss.
+	// Symlink checks are performed inside the lock to close the TOCTOU window.
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if err := s.checkSymlinksForWrite("write", path, absPath); err != nil {
+		return err
+	}
+
+	parentDir := filepath.Dir(absPath)
 
 	switch mode {
 	case WriteModeOverwrite:

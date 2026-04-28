@@ -149,23 +149,33 @@ type docContent struct {
 	titleStem  string // lowercased filename without extension
 }
 
-// flattenFrontmatter extracts a single string of all YAML values from raw
-// frontmatter (without the --- delimiters). It is intentionally simple.
+// flattenFrontmatter extracts a single string of all YAML leaf values from raw
+// frontmatter (without the --- delimiters) using the vault's YAML parser.
 func flattenFrontmatter(raw string) string {
+	fm, err := vault.ParseFrontmatter(raw)
+	if err != nil {
+		return ""
+	}
 	var sb strings.Builder
-	for _, line := range strings.Split(raw, "\n") {
-		// YAML key: value — grab everything after the first colon.
-		if idx := strings.Index(line, ":"); idx >= 0 {
-			val := strings.TrimSpace(line[idx+1:])
-			// Strip YAML list brackets [ ... ]
-			val = strings.Trim(val, "[]")
-			if val != "" {
-				sb.WriteString(val)
-				sb.WriteByte(' ')
-			}
+	flattenAny(fm, &sb)
+	return sb.String()
+}
+
+// flattenAny recursively walks a parsed YAML value and writes all leaf strings.
+func flattenAny(v any, sb *strings.Builder) {
+	switch val := v.(type) {
+	case string:
+		sb.WriteString(val)
+		sb.WriteByte(' ')
+	case []any:
+		for _, item := range val {
+			flattenAny(item, sb)
+		}
+	case map[string]any:
+		for _, v2 := range val {
+			flattenAny(v2, sb)
 		}
 	}
-	return sb.String()
 }
 
 // readDoc reads and parses a note into docContent.
@@ -251,9 +261,8 @@ func readDoc(rel, abs string, terms []string, opts BM25Options) (*docContent, er
 
 // SearchBM25 ranks vault notes for Query using the Okapi BM25 algorithm.
 //
-// The two-pass design:
-//   - Pass 1: walk all notes matching PathScope, collect N, avgDL, df[term]
-//   - Pass 2: score each document using BM25 formula, collect snippets
+// Pass 1: walk all notes matching PathScope, collect corpus stats and cache
+// parsed document data. Pass 2: score each cached document using BM25 formula.
 func (s *Service) SearchBM25(ctx context.Context, opts BM25Options) ([]BM25Result, error) {
 	if opts.Query == "" {
 		return nil, nil
@@ -278,11 +287,12 @@ func (s *Service) SearchBM25(ctx context.Context, opts BM25Options) ([]BM25Resul
 		return nil, nil
 	}
 
-	// ---- Pass 1: Corpus statistics ----
+	// ---- Pass 1: Corpus statistics + cache documents ----
 	stats := &corpusStats{
 		df: make(map[string]int),
 	}
 	var totalTokens int
+	var docs []*docContent
 
 	err := s.vault.WalkNotes(ctx, func(rel, abs string) error {
 		if !matchesPathScope(rel, opts.PathScope) {
@@ -294,6 +304,7 @@ func (s *Service) SearchBM25(ctx context.Context, opts BM25Options) ([]BM25Resul
 			return nil
 		}
 
+		docs = append(docs, dc)
 		stats.N++
 		totalTokens += len(dc.allTokens)
 
@@ -316,17 +327,12 @@ func (s *Service) SearchBM25(ctx context.Context, opts BM25Options) ([]BM25Resul
 	}
 	stats.avgDL = float64(totalTokens) / float64(stats.N)
 
-	// ---- Pass 2: Scoring ----
+	// ---- Pass 2: Scoring (uses cached docs — no second WalkNotes) ----
 	var results []BM25Result
 
-	err = s.vault.WalkNotes(ctx, func(rel, abs string) error {
-		if !matchesPathScope(rel, opts.PathScope) {
-			return nil
-		}
-
-		dc, err := readDoc(rel, abs, terms, opts)
-		if err != nil || dc == nil {
-			return nil
+	for _, dc := range docs {
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
 
 		docLen := float64(len(dc.allTokens))
@@ -346,7 +352,7 @@ func (s *Service) SearchBM25(ctx context.Context, opts BM25Options) ([]BM25Resul
 		}
 
 		if score == 0 {
-			return nil
+			continue
 		}
 
 		// Determine reason by checking individual terms (not phrase key) against
@@ -406,17 +412,13 @@ func (s *Service) SearchBM25(ctx context.Context, opts BM25Options) ([]BM25Resul
 		matches := collectBM25Matches(dc.rawContent, terms, maxPerFile, opts.CaseSensitive)
 
 		results = append(results, BM25Result{
-			Path:       rel,
+			Path:       dc.rel,
 			Score:      score,
 			MatchCount: len(matches),
 			Matches:    matches,
 			TokenCount: response.CountTokens(dc.rawContent),
 			Reason:     reason,
 		})
-		return nil
-	})
-	if err != nil {
-		return nil, err
 	}
 
 	// Sort by score descending.
