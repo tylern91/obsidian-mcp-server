@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [0.1.0] - 2026-06-22
 ### Added
 
 - `--version` flag prints the binary version to stdout and exits without requiring `--vault`.
@@ -25,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Collapsed 3 identical map-copy loops in `periodic.LoadConfig` into `mergeStringMap` helper
 - Removed `vault.WriteMode("overwrite")` string cast in favour of `vault.WriteModeOverwrite` constant
 - Deleted 18 narration comments across `tools/`, `search/`, and `vault/` packages
+
+---
 
 ## [1.0.0] - 2026-04-27
 

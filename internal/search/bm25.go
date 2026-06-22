@@ -70,9 +70,9 @@ type BM25Result struct {
 	Reason string `json:"reason"`
 }
 
-// matchesPathScope reports whether rel matches the given glob scope.
-// An empty scope always matches.
-func matchesPathScope(rel, scope string) bool {
+// MatchesPathScope reports whether rel matches the given glob scope.
+// An empty scope always matches. Exported for reuse in tool handlers.
+func MatchesPathScope(rel, scope string) bool {
 	if scope == "" {
 		return true
 	}
@@ -294,7 +294,7 @@ func (s *Service) SearchBM25(ctx context.Context, opts BM25Options) ([]BM25Resul
 	var docs []*docContent
 
 	err := s.vault.WalkNotes(ctx, func(rel, abs string) error {
-		if !matchesPathScope(rel, opts.PathScope) {
+		if !MatchesPathScope(rel, opts.PathScope) {
 			return nil
 		}
 
