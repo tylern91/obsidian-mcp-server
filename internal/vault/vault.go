@@ -352,6 +352,11 @@ func (s *Service) ListDirectory(ctx context.Context, path string) ([]DirEntry, e
 
 	results := make([]DirEntry, 0, len(rawEntries))
 	for _, entry := range rawEntries {
+		// Respect context cancellation; stop appending on a cancelled call.
+		if err := ctx.Err(); err != nil {
+			return nil, &PathError{Op: "list", Path: path, Err: err}
+		}
+
 		name := entry.Name()
 
 		var relPath string
@@ -367,6 +372,9 @@ func (s *Service) ListDirectory(ctx context.Context, path string) ([]DirEntry, e
 
 		info, err := entry.Info()
 		if err != nil {
+			// Skip entries whose metadata is unreadable (e.g. broken symlinks,
+			// race-removed files). The caller sees a partial listing but no
+			// hard error — consistent with best-effort directory enumeration.
 			continue
 		}
 
