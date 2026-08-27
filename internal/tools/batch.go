@@ -28,6 +28,9 @@ func registerReadMultipleNotes(s *server.MCPServer, deps Deps) {
 			mcp.Description("Number of runes for headOf when summary=true (default: 200)"),
 			mcp.DefaultNumber(200),
 		),
+		mcp.WithBoolean("prettyPrint",
+			mcp.Description("Format the JSON response with indentation (default: false)"),
+		),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
 	)
@@ -99,15 +102,11 @@ func readMultipleNotesHandler(deps Deps) server.ToolHandlerFunc {
 			Truncated bool        `json:"truncated"`
 		}
 
-		result, err := response.FormatJSON(batchResponse{
+		return response.ToolResult(req, deps.PrettyPrint, batchResponse{
 			Notes:     notes,
 			Count:     len(notes),
 			Truncated: truncated,
-		}, deps.PrettyPrint)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(result), nil
+		})
 	}
 }
 
@@ -117,6 +116,9 @@ func registerGetNotesInfo(s *server.MCPServer, deps Deps) {
 		mcp.WithString("paths",
 			mcp.Required(),
 			mcp.Description(`JSON array of note paths relative to the vault root (e.g. ["Notes/a.md","Notes/b.md"])`),
+		),
+		mcp.WithBoolean("prettyPrint",
+			mcp.Description("Format the JSON response with indentation (default: false)"),
 		),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
@@ -177,15 +179,11 @@ func getNotesInfoHandler(deps Deps) server.ToolHandlerFunc {
 			Truncated bool        `json:"truncated"`
 		}
 
-		result, err := response.FormatJSON(infoResponse{
+		return response.ToolResult(req, deps.PrettyPrint, infoResponse{
 			Notes:     notes,
 			Count:     len(notes),
 			Truncated: truncated,
-		}, deps.PrettyPrint)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(result), nil
+		})
 	}
 }
 
@@ -194,6 +192,9 @@ func registerGetVaultStats(s *server.MCPServer, deps Deps) {
 		mcp.WithDescription("Get aggregate statistics about the entire vault"),
 		mcp.WithBoolean("includeTokenCounts",
 			mcp.Description("When true, also sum token counts across all notes (default: false)"),
+		),
+		mcp.WithBoolean("prettyPrint",
+			mcp.Description("Format the JSON response with indentation (default: false)"),
 		),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
@@ -254,10 +255,6 @@ func getVaultStatsHandler(deps Deps) server.ToolHandlerFunc {
 			statsResp.TotalTokens = &toks
 		}
 
-		out, err := response.FormatJSON(statsResp, deps.PrettyPrint)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(out), nil
+		return response.ToolResult(req, deps.PrettyPrint, statsResp)
 	}
 }

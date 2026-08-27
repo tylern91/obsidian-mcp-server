@@ -32,7 +32,6 @@ func readNoteHandler(deps Deps) server.ToolHandlerFunc {
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		prettyPrint := req.GetBool("prettyPrint", deps.PrettyPrint)
 
 		note, err := deps.Vault.ReadNote(ctx, path)
 		if err != nil {
@@ -55,11 +54,7 @@ func readNoteHandler(deps Deps) server.ToolHandlerFunc {
 			TokenCount: response.CountTokens(note.Content),
 		}
 
-		result, err := response.FormatJSON(resp, prettyPrint)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(result), nil
+		return response.ToolResult(req, deps.PrettyPrint, resp)
 	}
 }
 
@@ -78,6 +73,9 @@ func registerWriteNote(s *server.MCPServer, deps Deps) {
 			mcp.Description("Write mode: \"overwrite\" (default), \"append\", or \"prepend\""),
 			mcp.Enum("overwrite", "append", "prepend"),
 			mcp.DefaultString("overwrite"),
+		),
+		mcp.WithBoolean("prettyPrint",
+			mcp.Description("Format the JSON response with indentation (default: false)"),
 		),
 		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(true),
@@ -106,10 +104,6 @@ func writeNoteHandler(deps Deps) server.ToolHandlerFunc {
 			Path    string `json:"path"`
 			Mode    string `json:"mode"`
 		}
-		result, err := response.FormatJSON(writeResponse{Success: true, Path: path, Mode: modeStr}, deps.PrettyPrint)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(result), nil
+		return response.ToolResult(req, deps.PrettyPrint, writeResponse{Success: true, Path: path, Mode: modeStr})
 	}
 }

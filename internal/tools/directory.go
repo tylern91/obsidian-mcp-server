@@ -58,7 +58,6 @@ func listDirectoryHandler(deps Deps) server.ToolHandlerFunc {
 		limit := req.GetInt("limit", 0)
 		offset := req.GetInt("offset", 0)
 		concise := req.GetBool("concise", true)
-		prettyPrint := req.GetBool("prettyPrint", deps.PrettyPrint)
 
 		// Resolve effective limit: caller → deps.MaxResults → hard default.
 		if limit <= 0 {
@@ -174,10 +173,6 @@ func listDirectoryHandler(deps Deps) server.ToolHandlerFunc {
 			Truncated: truncated,
 		}
 
-		result, err := response.FormatJSON(resp, prettyPrint)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(result), nil
+		return response.ToolResult(req, deps.PrettyPrint, resp)
 	}
 }

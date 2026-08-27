@@ -24,12 +24,12 @@ func backlinksResourceHandler(deps Deps) server.ResourceTemplateHandlerFunc {
 		uri := req.Params.URI
 		notePath := pathFromURI(uri, "obsidian://backlinks/")
 		if notePath == "" {
-			return resourceError(uri, fmt.Sprintf("cannot parse note path from URI %q", uri)), nil
+			return response.ErrorResourceContents(uri, fmt.Sprintf("cannot parse note path from URI %q", uri)), nil
 		}
 
 		backlinks, err := deps.Vault.GetBacklinks(ctx, notePath)
 		if err != nil {
-			return resourceError(uri, fmt.Sprintf("backlink lookup failed: %v", err)), nil
+			return response.ErrorResourceContents(uri, fmt.Sprintf("backlink lookup failed: %v", err)), nil
 		}
 
 		type entry struct {
@@ -47,19 +47,10 @@ func backlinksResourceHandler(deps Deps) server.ResourceTemplateHandlerFunc {
 			Backlinks []entry `json:"backlinks"`
 			Total     int     `json:"total"`
 		}
-		text, err := response.FormatJSON(result{
+		return response.JSONResourceContents(uri, "application/json", result{
 			Target:    notePath,
 			Backlinks: entries,
 			Total:     len(entries),
-		}, deps.PrettyPrint)
-		if err != nil {
-			return resourceError(uri, err.Error()), nil
-		}
-
-		return []mcp.ResourceContents{mcp.TextResourceContents{
-			URI:      uri,
-			MIMEType: "application/json",
-			Text:     text,
-		}}, nil
+		}, deps.PrettyPrint), nil
 	}
 }

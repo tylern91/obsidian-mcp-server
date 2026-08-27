@@ -6,6 +6,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/tylern91/obsidian-mcp-server/internal/response"
 )
 
 func registerNoteResource(s *server.MCPServer, deps Deps) {
@@ -23,12 +24,12 @@ func noteResourceHandler(deps Deps) server.ResourceTemplateHandlerFunc {
 		uri := req.Params.URI
 		notePath := pathFromURI(uri, "obsidian://note/")
 		if notePath == "" {
-			return resourceError(uri, fmt.Sprintf("cannot parse note path from URI %q", uri)), nil
+			return response.ErrorResourceContents(uri, fmt.Sprintf("cannot parse note path from URI %q", uri)), nil
 		}
 
 		note, err := deps.Vault.ReadNote(ctx, notePath)
 		if err != nil {
-			return resourceError(uri, fmt.Sprintf("note not found: %v", err)), nil
+			return response.ErrorResourceContents(uri, fmt.Sprintf("note not found: %v", err)), nil
 		}
 
 		return []mcp.ResourceContents{mcp.TextResourceContents{

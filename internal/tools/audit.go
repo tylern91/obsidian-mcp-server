@@ -48,6 +48,9 @@ func registerAuditNotes(s *server.MCPServer, deps Deps) {
 			mcp.Description("Maximum number of results per class (default: 20)"),
 			mcp.DefaultNumber(20),
 		),
+		mcp.WithBoolean("prettyPrint",
+			mcp.Description("Format the JSON response with indentation (default: false)"),
+		),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
 	)
@@ -253,12 +256,7 @@ func auditNotesHandler(deps Deps) server.ToolHandlerFunc {
 		}
 		respMap["truncated"] = truncated
 
-		prettyPrint := deps.PrettyPrint
-		out, err := response.FormatJSON(respMap, prettyPrint)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(out), nil
+		return response.ToolResult(req, deps.PrettyPrint, respMap)
 	}
 }
 

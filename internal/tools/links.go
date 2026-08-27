@@ -30,7 +30,6 @@ func getBacklinksHandler(deps Deps) server.ToolHandlerFunc {
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		prettyPrint := req.GetBool("prettyPrint", deps.PrettyPrint)
 
 		backlinks, err := deps.Vault.GetBacklinks(ctx, path)
 		if err != nil {
@@ -56,14 +55,10 @@ func getBacklinksHandler(deps Deps) server.ToolHandlerFunc {
 			Backlinks []backlinkEntry `json:"backlinks"`
 			Total     int             `json:"total"`
 		}
-		result, err := response.FormatJSON(backlinksResponse{
+		return response.ToolResult(req, deps.PrettyPrint, backlinksResponse{
 			Target:    path,
 			Backlinks: entries,
 			Total:     len(entries),
-		}, prettyPrint)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(result), nil
+		})
 	}
 }

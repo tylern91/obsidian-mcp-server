@@ -49,7 +49,6 @@ func searchNotesHandler(deps Deps) server.ToolHandlerFunc {
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		prettyPrint := req.GetBool("prettyPrint", deps.PrettyPrint)
 
 		opts := search.BM25Options{
 			Query:             query,
@@ -74,15 +73,11 @@ func searchNotesHandler(deps Deps) server.ToolHandlerFunc {
 			Results []search.BM25Result `json:"results"`
 			Total   int                 `json:"total"`
 		}
-		out, err := response.FormatJSON(searchNotesResponse{
+		return response.ToolResult(req, deps.PrettyPrint, searchNotesResponse{
 			Query:   query,
 			Results: results,
 			Total:   len(results),
-		}, prettyPrint)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(out), nil
+		})
 	}
 }
 
@@ -121,7 +116,6 @@ func searchRegexHandler(deps Deps) server.ToolHandlerFunc {
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		prettyPrint := req.GetBool("prettyPrint", deps.PrettyPrint)
 		scope := req.GetString("scope", "content")
 
 		opts := search.RegexOptions{
@@ -148,15 +142,11 @@ func searchRegexHandler(deps Deps) server.ToolHandlerFunc {
 			Results []search.RegexResult `json:"results"`
 			Total   int                  `json:"total"`
 		}
-		out, err := response.FormatJSON(searchRegexResponse{
+		return response.ToolResult(req, deps.PrettyPrint, searchRegexResponse{
 			Pattern: pattern,
 			Scope:   scope,
 			Results: results,
 			Total:   len(results),
-		}, prettyPrint)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(out), nil
+		})
 	}
 }

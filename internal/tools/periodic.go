@@ -27,6 +27,9 @@ func registerGetPeriodicNote(s *server.MCPServer, deps Deps) {
 		mcp.WithBoolean("createIfMissing",
 			mcp.Description("Create the note if it does not exist (default: false)"),
 		),
+		mcp.WithBoolean("prettyPrint",
+			mcp.Description("Format the JSON response with indentation (default: false)"),
+		),
 		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(false),
 	)
@@ -63,11 +66,7 @@ func getPeriodicNoteHandler(deps Deps) server.ToolHandlerFunc {
 					Exists bool   `json:"exists"`
 					Path   string `json:"path"`
 				}
-				result, jsonErr := response.FormatJSON(notFoundResponse{Exists: false, Path: resolvedPath}, deps.PrettyPrint)
-				if jsonErr != nil {
-					return mcp.NewToolResultError(jsonErr.Error()), nil
-				}
-				return mcp.NewToolResultText(result), nil
+				return response.ToolResult(req, deps.PrettyPrint, notFoundResponse{Exists: false, Path: resolvedPath})
 			}
 		}
 
@@ -89,11 +88,7 @@ func getPeriodicNoteHandler(deps Deps) server.ToolHandlerFunc {
 			TokenCount: response.CountTokens(note.Content),
 		}
 
-		result, err := response.FormatJSON(resp, deps.PrettyPrint)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(result), nil
+		return response.ToolResult(req, deps.PrettyPrint, resp)
 	}
 }
 
@@ -111,6 +106,9 @@ func registerGetRecentPeriodicNotes(s *server.MCPServer, deps Deps) {
 		),
 		mcp.WithBoolean("summary",
 			mcp.Description("When true, return headOf (200 chars) instead of full content (default: true)"),
+		),
+		mcp.WithBoolean("prettyPrint",
+			mcp.Description("Format the JSON response with indentation (default: false)"),
 		),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
@@ -200,13 +198,9 @@ func getRecentPeriodicNotesHandler(deps Deps) server.ToolHandlerFunc {
 			Count int         `json:"count"`
 		}
 
-		result, err := response.FormatJSON(recentResponse{
+		return response.ToolResult(req, deps.PrettyPrint, recentResponse{
 			Notes: notes,
 			Count: len(notes),
-		}, deps.PrettyPrint)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(result), nil
+		})
 	}
 }

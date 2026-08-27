@@ -27,6 +27,9 @@ func registerGetRecentChanges(s *server.MCPServer, deps Deps) {
 		mcp.WithBoolean("summary",
 			mcp.Description("When true, include the first 200 characters of each note (default: false)"),
 		),
+		mcp.WithBoolean("prettyPrint",
+			mcp.Description("Format the JSON response with indentation (default: false)"),
+		),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
 	)
@@ -120,13 +123,9 @@ func recentChangesHandler(deps Deps) server.ToolHandlerFunc {
 			Count int         `json:"count"`
 		}
 
-		out, err := response.FormatJSON(recentResponse{
+		return response.ToolResult(req, deps.PrettyPrint, recentResponse{
 			Notes: notes,
 			Count: len(notes),
-		}, deps.PrettyPrint)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(out), nil
+		})
 	}
 }

@@ -29,6 +29,9 @@ func registerPatchNote(s *server.MCPServer, deps Deps) {
 			mcp.Required(),
 			mcp.Description("Content to insert or use as the replacement body"),
 		),
+		mcp.WithBoolean("prettyPrint",
+			mcp.Description("Format the JSON response with indentation (default: false)"),
+		),
 		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(true),
 	)
@@ -68,16 +71,12 @@ func patchNoteHandler(deps Deps) server.ToolHandlerFunc {
 			Heading  string `json:"heading"`
 			Position string `json:"position"`
 		}
-		result, err := response.FormatJSON(patchResponse{
+		return response.ToolResult(req, deps.PrettyPrint, patchResponse{
 			Success:  true,
 			Path:     path,
 			Heading:  heading,
 			Position: position,
-		}, deps.PrettyPrint)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(result), nil
+		})
 	}
 }
 
@@ -91,6 +90,9 @@ func registerDeleteNote(s *server.MCPServer, deps Deps) {
 		mcp.WithString("confirm",
 			mcp.Required(),
 			mcp.Description("Must match path exactly to confirm the deletion"),
+		),
+		mcp.WithBoolean("prettyPrint",
+			mcp.Description("Format the JSON response with indentation (default: false)"),
 		),
 		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(true),
@@ -117,11 +119,7 @@ func deleteNoteHandler(deps Deps) server.ToolHandlerFunc {
 			Success bool   `json:"success"`
 			Path    string `json:"path"`
 		}
-		result, err := response.FormatJSON(deleteResponse{Success: true, Path: path}, deps.PrettyPrint)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(result), nil
+		return response.ToolResult(req, deps.PrettyPrint, deleteResponse{Success: true, Path: path})
 	}
 }
 
@@ -139,6 +137,9 @@ func registerMoveNote(s *server.MCPServer, deps Deps) {
 		mcp.WithString("confirm",
 			mcp.Required(),
 			mcp.Description("Must match src exactly to confirm the move"),
+		),
+		mcp.WithBoolean("prettyPrint",
+			mcp.Description("Format the JSON response with indentation (default: false)"),
 		),
 		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(true),
@@ -170,10 +171,6 @@ func moveNoteHandler(deps Deps) server.ToolHandlerFunc {
 			Src     string `json:"src"`
 			Dst     string `json:"dst"`
 		}
-		result, err := response.FormatJSON(moveResponse{Success: true, Src: src, Dst: dst}, deps.PrettyPrint)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(result), nil
+		return response.ToolResult(req, deps.PrettyPrint, moveResponse{Success: true, Src: src, Dst: dst})
 	}
 }

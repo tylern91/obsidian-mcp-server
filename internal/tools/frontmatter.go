@@ -30,7 +30,6 @@ func getFrontmatterHandler(deps Deps) server.ToolHandlerFunc {
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		prettyPrint := req.GetBool("prettyPrint", deps.PrettyPrint)
 
 		fm, body, err := deps.Vault.GetFrontmatter(ctx, path)
 		if err != nil {
@@ -42,15 +41,11 @@ func getFrontmatterHandler(deps Deps) server.ToolHandlerFunc {
 			Frontmatter map[string]any `json:"frontmatter"`
 			Body        string         `json:"body"`
 		}
-		result, err := response.FormatJSON(fmResponse{
+		return response.ToolResult(req, deps.PrettyPrint, fmResponse{
 			Path:        path,
 			Frontmatter: fm,
 			Body:        body,
-		}, prettyPrint)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(result), nil
+		})
 	}
 }
 
@@ -66,6 +61,9 @@ func registerUpdateFrontmatter(s *server.MCPServer, deps Deps) {
 		),
 		mcp.WithString("removeKeys",
 			mcp.Description("JSON array of key names to remove from the frontmatter"),
+		),
+		mcp.WithBoolean("prettyPrint",
+			mcp.Description("Format the JSON response with indentation (default: false)"),
 		),
 		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(true),
@@ -104,15 +102,11 @@ func updateFrontmatterHandler(deps Deps) server.ToolHandlerFunc {
 		for k := range updates {
 			updatedKeys = append(updatedKeys, k)
 		}
-		result, err := response.FormatJSON(updateResponse{
+		return response.ToolResult(req, deps.PrettyPrint, updateResponse{
 			Success: true,
 			Path:    path,
 			Updated: updatedKeys,
 			Removed: removeKeys,
-		}, deps.PrettyPrint)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(result), nil
+		})
 	}
 }

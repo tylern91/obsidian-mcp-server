@@ -30,6 +30,9 @@ func registerManageTags(s *server.MCPServer, deps Deps) {
 			mcp.Enum("frontmatter", "inline"),
 			mcp.DefaultString("frontmatter"),
 		),
+		mcp.WithBoolean("prettyPrint",
+			mcp.Description("Format the JSON response with indentation (default: false)"),
+		),
 		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(true),
 	)
@@ -76,11 +79,7 @@ func manageTagsHandler(deps Deps) server.ToolHandlerFunc {
 		if action == "add" {
 			resp.Location = location
 		}
-		result, err := response.FormatJSON(resp, deps.PrettyPrint)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(result), nil
+		return response.ToolResult(req, deps.PrettyPrint, resp)
 	}
 }
 
@@ -98,8 +97,6 @@ func registerListAllTags(s *server.MCPServer, deps Deps) {
 
 func listAllTagsHandler(deps Deps) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		prettyPrint := req.GetBool("prettyPrint", deps.PrettyPrint)
-
 		tagCounts, err := deps.Vault.AggregateTags(ctx)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
@@ -111,10 +108,6 @@ func listAllTagsHandler(deps Deps) server.ToolHandlerFunc {
 			Tags  []vault.TagCount `json:"tags"`
 			Total int              `json:"total"`
 		}
-		result, err := response.FormatJSON(allTagsResponse{Tags: top, Total: len(top)}, prettyPrint)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(result), nil
+		return response.ToolResult(req, deps.PrettyPrint, allTagsResponse{Tags: top, Total: len(top)})
 	}
 }
