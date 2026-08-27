@@ -185,7 +185,7 @@ func scanFileMatches(ctx context.Context, abs string, re *regexp.Regexp, maxMatc
 		// Treat unreadable files as empty rather than a fatal error.
 		return nil, nil
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var matches []RegexMatch
 	lineNum := 0

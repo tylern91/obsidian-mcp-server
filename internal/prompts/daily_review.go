@@ -41,9 +41,9 @@ func dailyNoteReviewHandler(deps Deps) server.PromptHandlerFunc {
 
 		today, err := deps.Vault.ReadNote(ctx, todayPath)
 		if err != nil {
-			sb.WriteString(fmt.Sprintf("Today's note (%s): not found or unreadable.\n\n", todayPath))
+			fmt.Fprintf(&sb, "Today's note (%s): not found or unreadable.\n\n", todayPath)
 		} else {
-			sb.WriteString(fmt.Sprintf("Today's note (%s):\n---\n%s\n---\n\n", today.Path, today.Content))
+			fmt.Fprintf(&sb, "Today's note (%s):\n---\n%s\n---\n\n", today.Path, today.Content)
 		}
 
 		// Include the previous day for carryover context.
@@ -51,7 +51,7 @@ func dailyNoteReviewHandler(deps Deps) server.PromptHandlerFunc {
 		if err == nil {
 			prev, err := deps.Vault.ReadNote(ctx, prevPath)
 			if err == nil {
-				sb.WriteString(fmt.Sprintf("Previous day's note (%s):\n---\n%s\n---\n\n", prev.Path, prev.Content))
+				fmt.Fprintf(&sb, "Previous day's note (%s):\n---\n%s\n---\n\n", prev.Path, prev.Content)
 			}
 		}
 

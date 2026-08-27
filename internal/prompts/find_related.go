@@ -45,19 +45,19 @@ func findRelatedHandler(deps Deps) server.PromptHandlerFunc {
 		outgoing := vault.ExtractLinks(note.Content)
 
 		var sb strings.Builder
-		sb.WriteString(fmt.Sprintf("Note: %s\n\n", note.Path))
-		sb.WriteString(fmt.Sprintf("Content:\n---\n%s\n---\n\n", note.Content))
+		fmt.Fprintf(&sb, "Note: %s\n\n", note.Path)
+		fmt.Fprintf(&sb, "Content:\n---\n%s\n---\n\n", note.Content)
 
 		if len(tags) > 0 {
-			sb.WriteString(fmt.Sprintf("Tags: %s\n\n", strings.Join(tags, ", ")))
+			fmt.Fprintf(&sb, "Tags: %s\n\n", strings.Join(tags, ", "))
 		}
 		if len(outgoing) > 0 {
-			sb.WriteString(fmt.Sprintf("Outgoing links: %s\n\n", strings.Join(outgoing, ", ")))
+			fmt.Fprintf(&sb, "Outgoing links: %s\n\n", strings.Join(outgoing, ", "))
 		}
 		if len(backlinks) > 0 {
 			sb.WriteString("Notes that link here:\n")
 			for _, bl := range backlinks {
-				sb.WriteString(fmt.Sprintf("  - %s (line %d): %s\n", bl.Path, bl.Line, bl.Snippet))
+				fmt.Fprintf(&sb, "  - %s (line %d): %s\n", bl.Path, bl.Line, bl.Snippet)
 			}
 			sb.WriteString("\n")
 		}

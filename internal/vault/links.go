@@ -106,7 +106,7 @@ func (s *Service) GetBacklinks(ctx context.Context, targetPath string) ([]Backli
 		if openErr != nil {
 			return nil
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 
 		scanner := bufio.NewScanner(f)
 		lineNum := 0
