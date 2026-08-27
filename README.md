@@ -149,6 +149,10 @@ brew install obsidian-mcp
 
 ### go install
 
+Requires Go 1.27+ to build from source. Building with `GOTOOLCHAIN=local` on an older Go
+requires upgrading first — `GOTOOLCHAIN=auto` (the default since Go 1.21) downloads a matching
+toolchain automatically.
+
 ```bash
 go install github.com/tylern91/obsidian-mcp-server/cmd/obsidian-mcp@latest
 ```
