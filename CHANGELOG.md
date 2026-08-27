@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+**Token counting no longer reaches the network**
+- `CountTokens` loaded the `cl100k_base` rank table via `tiktoken-go`'s default HTTP loader, which
+  fetched `openaipublic.blob.core.windows.net` on a cold cache — a filesystem MCP server silently
+  reaching the network on every response. The rank table is now vendored
+  (`internal/response/assets/cl100k_base.tiktoken`) and loaded via `go:embed`; token counting is
+  fully offline. Removed the `len(text)/4` fallback that masked encoder-init failure — that path is
+  now unreachable, so it panics loudly instead of silently returning a wrong count.
+
 ### Changed
 
 **Minimum requirements**

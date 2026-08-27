@@ -2,6 +2,7 @@ package response_test
 
 import (
 	"math"
+	"os"
 	"strings"
 	"testing"
 
@@ -52,6 +53,29 @@ func TestCountTokens(t *testing.T) {
 				t.Errorf("CountTokens(%q) = %d, want [%d, %d]", tc.text, got, tc.wantMin, tc.wantMax)
 			}
 		})
+	}
+}
+
+// TestCountTokens_NoNetworkFetch asserts the encoder loads from the embedded
+// cl100k_base rank table rather than tiktoken-go's default loader, which
+// fetches over HTTP and caches the result to TIKTOKEN_CACHE_DIR on first use.
+// If CountTokens ever regressed to the network loader, this directory would
+// gain a cache file; with the embedded loader it must stay empty.
+func TestCountTokens_NoNetworkFetch(t *testing.T) {
+	cacheDir := t.TempDir()
+	t.Setenv("TIKTOKEN_CACHE_DIR", cacheDir)
+
+	got := response.CountTokens("the quick brown fox")
+	if got <= 0 {
+		t.Fatalf("CountTokens returned %d, want > 0", got)
+	}
+
+	entries, err := os.ReadDir(cacheDir)
+	if err != nil {
+		t.Fatalf("ReadDir(%q): %v", cacheDir, err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("TIKTOKEN_CACHE_DIR gained %d entr(y/ies); CountTokens should never touch the network loader's cache", len(entries))
 	}
 }
 

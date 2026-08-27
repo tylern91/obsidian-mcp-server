@@ -2,6 +2,7 @@ package response
 
 import (
 	"encoding/json"
+	"fmt"
 	"sync"
 
 	tiktoken "github.com/pkoukk/tiktoken-go"
@@ -15,20 +16,19 @@ var (
 func initEncoder() {
 	encoderOnce.Do(func() {
 		enc, err := tiktoken.GetEncoding("cl100k_base")
-		if err == nil {
-			encoder = enc
+		if err != nil {
+			// The BPE ranks are embedded via go:embed (tiktoken_loader.go), so this
+			// path only fails on a corrupted binary — not a condition to recover from.
+			panic(fmt.Sprintf("response: failed to load embedded cl100k_base encoding: %v", err))
 		}
-		// encoder stays nil on failure; CountTokens falls back to approximation
+		encoder = enc
 	})
 }
 
 // CountTokens returns the number of tokens in text using the cl100k_base encoding
-// (used by gpt-4o and GPT-4). Falls back to len(text)/4 if the encoder is unavailable.
+// (used by gpt-4o and GPT-4).
 func CountTokens(text string) int {
 	initEncoder()
-	if encoder == nil {
-		return len(text) / 4 // approximation: ~4 chars per token
-	}
 	return len(encoder.Encode(text, nil, nil))
 }
 
