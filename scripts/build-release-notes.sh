@@ -1,0 +1,188 @@
+#!/usr/bin/env bash
+# build-release-notes.sh — Build GitHub Release notes from CHANGELOG.md.
+#
+# Usage:
+#   build-release-notes.sh <version> <label> <breaking> [--from-existing] [--fallback-unreleased] [--prev <tag>]
+#
+# Args:
+#   version       — target version string (e.g. v0.3.0), used only with --from-existing
+#   label         — major|minor|patch (informational only)
+#   breaking      — true|false — prepend breaking-change callout when true
+#   --from-existing — read the matching [version] section instead of [Unreleased]
+#   --fallback-unreleased — when the [version] section doesn't exist yet, preview
+#                   [Unreleased] instead of failing (for previewing a not-yet-cut release)
+#   --prev <tag>  — previous release tag; when set, appends a "Full Changelog" compare
+#                   link and an Install section with versioned asset URLs
+#
+# Environment:
+#   CHANGELOG          — path to CHANGELOG.md (default: ./CHANGELOG.md)
+#   PR_BODY             — raw PR body; if it contains a "## Migration" section, it is appended
+#   REPO_SLUG           — owner/repo (default: $GITHUB_REPOSITORY, else derived from origin)
+#   ASSET_SHA256_DARWIN — sha256 of the darwin-arm64 tarball, if already known
+#   ASSET_SHA256_LINUX  — sha256 of the linux-amd64 tarball, if already known
+#
+# Output: release notes markdown on stdout
+set -Eeuo pipefail
+
+version="${1:-}"
+label="${2:-patch}"
+breaking="${3:-false}"
+from_existing=false
+fallback_unreleased=false
+prev=""
+shift 3 || true
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --from-existing) from_existing=true ;;
+    --fallback-unreleased) fallback_unreleased=true ;;
+    --prev) shift; prev="${1:-}" ;;
+  esac
+  shift || true
+done
+
+CHANGELOG="${CHANGELOG:-CHANGELOG.md}"
+if [ -z "${REPO_SLUG:-}" ]; then
+  # Handles both "git@github.com:owner/repo.git" and "https://github.com/owner/repo.git" —
+  # take the last two "/"-or-":"-delimited fields, whichever separator the URL used.
+  origin_url="$(git remote get-url origin 2>/dev/null || true)"
+  origin_url="${origin_url%.git}"
+  REPO_SLUG="${GITHUB_REPOSITORY:-$(printf '%s' "$origin_url" | awk -F'[/:]' '{print $(NF-1)"/"$NF}')}"
+fi
+
+if [ ! -f "$CHANGELOG" ]; then
+  printf 'build-release-notes: CHANGELOG not found at %s\n' "$CHANGELOG" >&2
+  exit 1
+fi
+
+# Extract the relevant block using awk
+if [ "$from_existing" = "true" ]; then
+  # Strip leading v for matching inside CHANGELOG (e.g. v0.3.0 → 0.3.0)
+  ver_bare="${version#v}"
+  body=$(awk -v ver="$ver_bare" '
+    /^## \[/ && index($0, "[" ver "]") { found=1; next }
+    /^## \[/ && found { exit }
+    found { print }
+  ' "$CHANGELOG" \
+    | { grep -v '^---$' || true; } \
+    | sed '/^[[:space:]]*$/{ N; /^\n$/d; }')
+
+  # A missing [version] section must not silently fall through to the Install
+  # appendix below — that would emit boilerplate with no changelog content.
+  if [ -z "$(printf '%s' "$body" | tr -d '[:space:]')" ]; then
+    if [ "$fallback_unreleased" = "true" ]; then
+      printf 'build-release-notes: no [%s] section; falling back to [Unreleased]\n' "$ver_bare" >&2
+      from_existing=false
+    else
+      printf 'build-release-notes: no [%s] section in %s\n' "$ver_bare" "$CHANGELOG" >&2
+      exit 1
+    fi
+  fi
+fi
+
+if [ "$from_existing" = "false" ]; then
+  # An empty "## [Unreleased]" section is the expected steady state between
+  # releases, not an error — grep exits 1 when it has zero lines to filter,
+  # which would otherwise abort the whole script under `pipefail`.
+  body=$(awk '
+    /^## \[Unreleased\]/ { found=1; next }
+    /^## \[/ && found { exit }
+    found { print }
+  ' "$CHANGELOG" \
+    | { grep -v '^---$' || true; } \
+    | awk 'NF{p=1} p')
+fi
+
+# Strip empty type-bucket headings (headings followed immediately by another heading or EOF)
+body=$(printf '%s' "$body" | awk '
+  /^### / { pending=$0; next }
+  /^[[:space:]]*$/ { if (pending != "") { print ""; next } print; next }
+  { if (pending != "") { print pending; pending="" } print }
+  END { }
+')
+
+# Prepend breaking-change callout
+if [ "$breaking" = "true" ]; then
+  callout='> Warning: **Breaking Changes**
+>
+> Review the changes below carefully before upgrading.
+
+'
+  body="${callout}${body}"
+fi
+
+# Append Migration section from PR body if present
+if [ -n "${PR_BODY:-}" ]; then
+  migration=$(printf '%s' "$PR_BODY" | awk '/^## Migration/{found=1; next} /^## [^M]/{if(found) exit} found{print}')
+  if [ -n "$migration" ]; then
+    body="${body}
+
+## Migration
+
+${migration}"
+  fi
+fi
+
+# Append Full Changelog compare link + Install section when the previous tag is known.
+# --prev is only passed by callers that already have a concrete tag range (i.e. real
+# releases); the [Unreleased] preview path has no "next" tag yet, so it's skipped there.
+if [ -n "$prev" ] && [ -n "$REPO_SLUG" ] \
+   && [ -n "$(printf '%s' "$body" | tr -d '[:space:]')" ]; then
+  compare_range="${prev}...${version}"
+  darwin_arm64="obsidian-mcp-${version}-darwin-arm64.tar.gz"
+  darwin_amd64="obsidian-mcp-${version}-darwin-amd64.tar.gz"
+  linux_amd64="obsidian-mcp-${version}-linux-amd64.tar.gz"
+  linux_arm64="obsidian-mcp-${version}-linux-arm64.tar.gz"
+  windows_amd64="obsidian-mcp-${version}-windows-amd64.tar.gz"
+  darwin_sha="${ASSET_SHA256_DARWIN:-not yet available — verify against the .sha256 sidecar}"
+  linux_sha="${ASSET_SHA256_LINUX:-not yet available — verify against the .sha256 sidecar}"
+
+  body="${body}
+
+## Install
+
+\`\`\`sh
+# macOS (Apple Silicon)
+curl -fLO https://github.com/${REPO_SLUG}/releases/download/${version}/${darwin_arm64}
+curl -fLO https://github.com/${REPO_SLUG}/releases/download/${version}/${darwin_arm64}.sha256
+shasum -a 256 -c ${darwin_arm64}.sha256
+tar -xf ${darwin_arm64}
+install -m 0755 obsidian-mcp ~/.local/bin/obsidian-mcp
+
+# macOS (Intel)
+curl -fLO https://github.com/${REPO_SLUG}/releases/download/${version}/${darwin_amd64}
+tar -xf ${darwin_amd64}
+install -m 0755 obsidian-mcp ~/.local/bin/obsidian-mcp
+
+# Linux (x86_64)
+curl -fLO https://github.com/${REPO_SLUG}/releases/download/${version}/${linux_amd64}
+curl -fLO https://github.com/${REPO_SLUG}/releases/download/${version}/${linux_amd64}.sha256
+shasum -a 256 -c ${linux_amd64}.sha256
+tar -xf ${linux_amd64}
+install -m 0755 obsidian-mcp ~/.local/bin/obsidian-mcp
+
+# Linux (arm64)
+curl -fLO https://github.com/${REPO_SLUG}/releases/download/${version}/${linux_arm64}
+tar -xf ${linux_arm64}
+install -m 0755 obsidian-mcp ~/.local/bin/obsidian-mcp
+
+# Windows (x86_64) — see ${windows_amd64}
+
+# Homebrew
+brew tap tylern91/obsidian-mcp && brew install obsidian-mcp
+
+# go install
+go install github.com/tylern91/obsidian-mcp-server/cmd/obsidian-mcp@${version}
+\`\`\`
+
+| Asset | SHA-256 |
+|---|---|
+| \`${darwin_arm64}\` | \`${darwin_sha}\` |
+| \`${linux_amd64}\` | \`${linux_sha}\` |
+| \`${darwin_amd64}\` | see \`.sha256\` sidecar |
+| \`${linux_arm64}\` | see \`.sha256\` sidecar |
+| \`${windows_amd64}\` | see \`.sha256\` sidecar |
+
+**Full Changelog**: [\`${compare_range}\`](https://github.com/${REPO_SLUG}/compare/${compare_range})"
+fi
+
+printf '%s\n' "$body"

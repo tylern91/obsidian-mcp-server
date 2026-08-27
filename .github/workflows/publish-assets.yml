@@ -1,0 +1,192 @@
+name: publish-assets
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "Tag to publish assets for (e.g. v0.3.0)"
+        required: true
+        type: string
+      refresh_notes:
+        required: false
+        type: boolean
+        default: true
+      sync_homebrew:
+        required: false
+        type: boolean
+        default: true
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Tag to publish assets for (e.g. v0.3.0)"
+        required: true
+        type: string
+      refresh_notes:
+        description: "Re-stamp and re-render release notes with real digests"
+        required: false
+        type: boolean
+        default: true
+      sync_homebrew:
+        description: "Push the rendered formula to the Homebrew tap"
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  upload-assets:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: darwin
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.version }}
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.27.0"
+          cache: true
+
+      - name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          ext=""
+          if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
+          go build -trimpath -ldflags="-s -w" -o "dist/obsidian-mcp${ext}" ./cmd/obsidian-mcp
+
+      - name: Assert binary version matches tag (native targets only)
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -Eeuo pipefail
+          got="$(./dist/obsidian-mcp --version | awk '{print $NF}')"
+          want="${VERSION#v}"
+          if [ "$got" != "$want" ]; then
+            echo "::error::binary reports version '$got' but release tag is '$want' — refusing to publish"
+            exit 1
+          fi
+
+      - name: Package
+        id: pkg
+        env:
+          VERSION: ${{ inputs.version }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          set -Eeuo pipefail
+          name="obsidian-mcp-${VERSION}-${GOOS}-${GOARCH}"
+          mkdir -p "dist/${name}"
+          bin="dist/obsidian-mcp"
+          if [ "$GOOS" = "windows" ]; then bin="dist/obsidian-mcp.exe"; fi
+          cp "$bin" "dist/${name}/"
+          cp LICENSE NOTICE README.md "dist/${name}/"
+          tar -czf "${name}.tar.gz" -C dist "${name}"
+          shasum -a 256 "${name}.tar.gz" > "${name}.tar.gz.sha256"
+          echo "asset=${name}.tar.gz" >> "$GITHUB_OUTPUT"
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          gh release upload "$VERSION" \
+            "${{ steps.pkg.outputs.asset }}" "${{ steps.pkg.outputs.asset }}.sha256" \
+            --clobber --repo "${{ github.repository }}"
+
+  finalize-notes:
+    needs: upload-assets
+    if: inputs.refresh_notes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.version }}
+
+      - name: Resolve previous tag
+        id: v
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          prev="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | grep -v -x "$VERSION" | head -1)"
+          echo "prev=$prev" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch real asset digests
+        id: digests
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -Eeuo pipefail
+          assets="$(gh api "repos/${{ github.repository }}/releases/tags/${VERSION}" -q '.assets')"
+          darwin_sha="$(printf '%s' "$assets" | jq -r '.[] | select(.name | test("darwin-arm64.tar.gz.sha256$")) | .browser_download_url' | xargs -r -I{} curl -fsSL {} | awk '{print $1}')"
+          linux_sha="$(printf '%s' "$assets" | jq -r '.[] | select(.name | test("linux-amd64.tar.gz.sha256$")) | .browser_download_url' | xargs -r -I{} curl -fsSL {} | awk '{print $1}')"
+          echo "darwin_sha=$darwin_sha" >> "$GITHUB_OUTPUT"
+          echo "linux_sha=$linux_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Re-stamp CHANGELOG
+        run: bash scripts/stamp-changelog-refs.sh "${{ inputs.version }}" || true
+
+      - name: Re-render notes with real digests
+        env:
+          ASSET_SHA256_DARWIN: ${{ steps.digests.outputs.darwin_sha }}
+          ASSET_SHA256_LINUX: ${{ steps.digests.outputs.linux_sha }}
+        run: |
+          bash scripts/build-release-notes.sh \
+            "${{ inputs.version }}" patch false \
+            --from-existing --prev "${{ steps.v.outputs.prev }}" \
+            > /tmp/RELEASE_BODY.md
+
+      - name: Update release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release edit "${{ inputs.version }}" \
+            --notes-file /tmp/RELEASE_BODY.md --repo "${{ github.repository }}"
+
+  sync-homebrew:
+    needs: upload-assets
+    if: inputs.sync_homebrew && vars.HOMEBREW_SYNC_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Mint tap-scoped App token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.HOMEBREW_APP_ID }}
+          private-key: ${{ secrets.HOMEBREW_APP_PRIVATE_KEY }}
+          owner: tylern91
+          repositories: homebrew-obsidian-mcp
+
+      - name: Sync formula
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ steps.app-token.outputs.token }}
+          VERSION: ${{ inputs.version }}
+        run: bash scripts/update-homebrew-formula.sh "$VERSION"
