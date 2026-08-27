@@ -21,7 +21,7 @@ go test -race ./internal/vault/ -run TestSanitizePath -v
 
 ## Architecture
 
-**Request flow** (`cmd/obsidian-mcp/main.go`): wires `vault.New(...)`, `search.New(vaultSvc)`, `periodic.New(...)` into a single `tools.Deps` struct, then `tools.RegisterAll(server, deps)` registers 21 mcp-go `ToolHandlerFunc` closures. Stdio transport via `mcpserver.ServeStdio(s)`.
+**Request flow** (`cmd/obsidian-mcp/main.go`): wires `vault.New(...)`, `search.New(vaultSvc)`, `periodic.New(...)` into a single `tools.Deps` struct, then `tools.RegisterAll(server, deps)` registers 20 mcp-go `ToolHandlerFunc` closures. Stdio transport via `mcpserver.ServeStdio(s)`.
 
 **Key seam**: `tools.VaultService` / `tools.SearchService` / `tools.PeriodicService` interfaces live in `internal/tools/registration.go` (consumer-side), so tests can mock them. Concrete types live in `internal/vault`, `internal/search`, `internal/periodic`.
 
@@ -34,7 +34,7 @@ go test -race ./internal/vault/ -run TestSanitizePath -v
 - `internal/vault/` — `vault.Service` (path security, CRUD, frontmatter, tags, links); 16 MB read/write cap
 - `internal/search/` — per-query BM25 (no persistent index), regex/glob; Okapi BM25 with title boost + bigram phrase bonus
 - `internal/periodic/` — daily/weekly/etc. note resolution; reads `.obsidian/plugins/periodic-notes/data.json`
-- `internal/tools/` — 21 MCP tool registrations, grouped by theme (`notes.go`, `search.go`, `batch.go`, `tags.go`, …)
+- `internal/tools/` — 20 MCP tool registrations, grouped by theme (`notes.go`, `search.go`, `batch.go`, `tags.go`, …)
 - `internal/response/` — single canonical `FormatJSON`; `CountTokens` (cl100k_base via tiktoken-go); rune-safe truncation
 - `internal/prompts/` — MCP prompt templates
 - `internal/version/` — single `const Version` (hand-edited per release; not ldflags-injected)
@@ -44,7 +44,7 @@ go test -race ./internal/vault/ -run TestSanitizePath -v
 
 - **Stdout is reserved for JSON-RPC.** Never `fmt.Println` from server code. Logs go to stderr via slog JSON handler (`main.go`).
 - **Tool errors return `mcp.NewToolResultError(...)`**, never Go errors (Go errors surface as protocol errors).
-- **Path security**: every write path goes through `vault.Service.sanitizePath` → `resolveSymlink` → `checkSymlinksForWrite` *inside* `s.mu.Lock()` (TOCTOU defense). When adding a new write op, follow this exact ordering.
+- **Path security**: `sanitizePath` is purely lexical (no syscalls) and may run *outside* `s.mu.Lock()`; `checkSymlinksForWrite` and the write syscall itself must both run *inside* the lock — that ordering, not `sanitizePath`'s position, is the TOCTOU defense (against races within this process; a local attacker with vault write access can still race the check against an external write — see `checkSymlinksForWrite`'s doc comment and `SECURITY.md`). When adding a new write op, follow this exact ordering. Read paths use case-insensitive fallback resolution (`ResolvePath` → `existenceCheck`); write paths use `existsStrict` — never mix the two, since a case-insensitive fallback on a write target would resolve ambiguously.
 - **Frontmatter writes preserve key order** via yaml.v3 Node API in `internal/vault/frontmatter.go` (`UpdateFrontmatter` walks `MappingNode.Content`). Naive `yaml.Marshal` round-trip will reorder keys and corrupt user files — don't.
 - **Test fixture is load-bearing**: `testdata/vault/` tag counts, link graphs, and `.obsidian/plugins/periodic-notes/data.json` back assertions in search/audit/periodic tests. Use `t.TempDir()` and copy fixtures rather than mutate.
 - **Error sentinel**: `config.ErrVersionRequested` is control flow for `--version`, not a real error — `main.go` checks for it before logging.

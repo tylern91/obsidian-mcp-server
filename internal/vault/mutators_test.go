@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -234,5 +235,35 @@ func TestService_MoveNote(t *testing.T) {
 		err := svc.MoveNote(ctx, "Notes/simple.md", "../escape.md", "Notes/simple.md")
 		require.Error(t, err)
 		assert.True(t, errors.Is(err, vault.ErrPathTraversal))
+	})
+
+	// Concurrent moves to the same dst must not both succeed: the dst-exists
+	// check must run inside s.mu, or two racing os.Rename calls could both
+	// pass a stale check and the second silently clobbers the first.
+	t.Run("concurrent moves to same dst do not both succeed", func(t *testing.T) {
+		svc := newTempVault(t)
+		require.NoError(t, svc.WriteNote(ctx, "Notes/second-src.md", "second", vault.WriteModeOverwrite))
+
+		var wg sync.WaitGroup
+		errs := make([]error, 2)
+		srcs := []string{"Notes/simple.md", "Notes/second-src.md"}
+		wg.Add(2)
+		for i := 0; i < 2; i++ {
+			go func(i int) {
+				defer wg.Done()
+				errs[i] = svc.MoveNote(ctx, srcs[i], "Archive/winner.md", srcs[i])
+			}(i)
+		}
+		wg.Wait()
+
+		successes := 0
+		for _, err := range errs {
+			if err == nil {
+				successes++
+			} else {
+				assert.True(t, errors.Is(err, vault.ErrAlreadyExists), "unexpected error: %v", err)
+			}
+		}
+		assert.Equal(t, 1, successes, "exactly one concurrent move to the same dst should succeed")
 	})
 }

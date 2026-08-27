@@ -36,7 +36,7 @@ func (s *Service) PatchNote(ctx context.Context, path string, p PatchOp) error {
 		return err
 	}
 
-	data, err := os.ReadFile(absPath)
+	data, _, err := readNoteBytes(absPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &PathError{Op: "patch", Path: path, Err: ErrNotFound}
@@ -181,13 +181,15 @@ func (s *Service) MoveNote(ctx context.Context, src, dst, confirm string) error 
 		return err
 	}
 
-	// Check dst does not already exist.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Check dst does not already exist. Must run inside the lock: two
+	// concurrent moves to the same dst could otherwise both pass this check
+	// and both os.Rename, silently clobbering one of the notes.
 	if _, statErr := os.Stat(dstAbs); statErr == nil {
 		return &PathError{Op: "move", Path: dst, Err: ErrAlreadyExists}
 	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	if err := s.checkSymlinksForWrite("move", src, srcAbs); err != nil {
 		return err

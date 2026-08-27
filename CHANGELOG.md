@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+**Vault write paths: size cap, TOCTOU races, and Windows-unsafe paths**
+- The 16 MB size cap was enforced only by `ReadNote`; `update_frontmatter`, `patch_note`,
+  `manage_tags`, and the vault-wide tag aggregation read files uncapped. All read paths now share
+  a single capped `readNoteBytes` helper.
+- `write_note` in append/prepend mode checked only the incoming content against the cap, not the
+  combined result — repeated appends could grow a note without bound. Now checked after assembly.
+- `move_note`, `manage_tags`, and `update_frontmatter` checked their target didn't already exist
+  before acquiring the internal write lock. For `move_note` this was a genuine data-loss race: two
+  concurrent moves to the same destination could both pass the check and both write, silently
+  clobbering one. All three checks now run inside the lock.
+- `manage_tags` and `update_frontmatter` did not check for request cancellation on entry.
+- `sanitizePath` now rejects Windows-unsafe path forms regardless of build platform: drive-relative
+  paths (`C:foo`), NTFS alternate data streams (`note.md:hidden`), reserved device names (`NUL`,
+  `CON`, `COM1`, etc.), and trailing dots/spaces that Windows silently strips.
+
 **Token counting no longer reaches the network**
 - `CountTokens` loaded the `cl100k_base` rank table via `tiktoken-go`'s default HTTP loader, which
   fetched `openaipublic.blob.core.windows.net` on a cold cache — a filesystem MCP server silently

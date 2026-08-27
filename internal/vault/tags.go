@@ -165,6 +165,10 @@ func (s *Service) ListTags(ctx context.Context, path string) ([]string, error) {
 // The method is atomic: it locks the service mutex for the entire
 // read-modify-write cycle.
 func (s *Service) AddTag(ctx context.Context, path, tag, location string) error {
+	if err := ctx.Err(); err != nil {
+		return &PathError{Op: "add_tag", Path: path, Err: err}
+	}
+
 	if location == "" {
 		location = "frontmatter"
 	}
@@ -177,21 +181,18 @@ func (s *Service) AddTag(ctx context.Context, path, tag, location string) error 
 		return err
 	}
 
-	if _, statErr := os.Stat(absPath); statErr != nil {
-		if os.IsNotExist(statErr) {
-			return &PathError{Op: "add_tag", Path: path, Err: ErrNotFound}
-		}
-		return &PathError{Op: "add_tag", Path: path, Err: statErr}
-	}
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if err := s.existsStrict("add_tag", path, absPath); err != nil {
+		return err
+	}
 
 	if err := s.checkSymlinksForWrite("add_tag", path, absPath); err != nil {
 		return err
 	}
 
-	data, err := os.ReadFile(absPath)
+	data, _, err := readNoteBytes(absPath)
 	if err != nil {
 		return &PathError{Op: "add_tag", Path: path, Err: err}
 	}
@@ -312,26 +313,27 @@ func addTagToFrontmatter(mapping *yaml.Node, tag, body string) (string, error) {
 // counted as a prose tag). The body is processed line-by-line using a
 // fence-state-machine so that lines inside fences are written back unchanged.
 func (s *Service) RemoveTag(ctx context.Context, path, tag string) error {
+	if err := ctx.Err(); err != nil {
+		return &PathError{Op: "remove_tag", Path: path, Err: err}
+	}
+
 	_, absPath, err := s.sanitizePath("remove_tag", path)
 	if err != nil {
 		return err
 	}
 
-	if _, statErr := os.Stat(absPath); statErr != nil {
-		if os.IsNotExist(statErr) {
-			return &PathError{Op: "remove_tag", Path: path, Err: ErrNotFound}
-		}
-		return &PathError{Op: "remove_tag", Path: path, Err: statErr}
-	}
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if err := s.existsStrict("remove_tag", path, absPath); err != nil {
+		return err
+	}
 
 	if err := s.checkSymlinksForWrite("remove_tag", path, absPath); err != nil {
 		return err
 	}
 
-	data, err := os.ReadFile(absPath)
+	data, _, err := readNoteBytes(absPath)
 	if err != nil {
 		return &PathError{Op: "remove_tag", Path: path, Err: err}
 	}
@@ -482,9 +484,9 @@ func (s *Service) AggregateTags(ctx context.Context) (map[string]int, error) {
 	counts := make(map[string]int)
 
 	err := s.WalkNotes(ctx, func(rel, abs string) error {
-		data, readErr := os.ReadFile(abs)
+		data, _, readErr := readNoteBytes(abs)
 		if readErr != nil {
-			return nil // skip unreadable files silently
+			return nil // skip unreadable and oversized files silently
 		}
 
 		content := string(data)
