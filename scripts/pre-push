@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Blocks pushing a v* tag whose version doesn't match internal/version/version.go
+# and CHANGELOG.md. Install via `make install-hooks`; not active until then.
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+while read -r local_ref local_sha _remote_ref _remote_sha; do
+    [[ "$local_ref" == refs/tags/v* ]] || continue
+    [[ "$local_sha" != "0000000000000000000000000000000000000000" ]] || continue
+
+    tag="${local_ref#refs/tags/}"
+    tag_version="${tag#v}"
+
+    sync_output="$(bash "$REPO_ROOT/scripts/check-version-sync.sh")"
+    code_version="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' <<<"$sync_output" | tail -1)"
+
+    if [[ "$tag_version" != "$code_version" ]]; then
+        echo "error: refusing to push $tag — internal/version/version.go and CHANGELOG.md agree on $code_version" >&2
+        exit 1
+    fi
+done
+
+exit 0
