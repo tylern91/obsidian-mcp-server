@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- CI: hardened `go.yml`/`security.yml`/`publish-assets.yml` checkouts with
+  `persist-credentials: false` and `fetch-depth: 1`, added job `timeout-minutes`
+  across all workflows, pinned `actionlint`, `govulncheck`, and `golangci-lint`
+  versions instead of floating on `latest`, bumped `aquasecurity/trivy-action` to
+  `v0.36.0`, and added `concurrency` groups to `security.yml`/`publish-assets.yml`.
+  `release.yml`'s checkout is intentionally unchanged (needs `fetch-depth: 0` and
+  persisted App-token credentials to push a tag touching `.github/workflows/*`).
+- Added `scripts/pre-push` (installed via `make install-hooks`) to block pushing a
+  `v*` tag whose version doesn't match `internal/version/version.go`/`CHANGELOG.md`.
+- Added `probity.config.mjs` (no-op) and `.gitattributes` (LF normalization).
+
+### Security
+
+- GitHub tag ruleset `release-tags-protection` now blocks `creation` and `update`
+  on `refs/tags/v*` in addition to `deletion`/`non_fast_forward`/`required_signatures`
+  — only the release workflow's GitHub App token can mint a `v*` tag.
+
 ### Fixed
 
 **Vault write paths: size cap, TOCTOU races, and Windows-unsafe paths**

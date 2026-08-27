@@ -1,4 +1,4 @@
-.PHONY: build test vet fmt lint run clean help
+.PHONY: build test vet fmt lint run clean help install-hooks
 
 BINARY := obsidian-mcp
 
@@ -30,6 +30,10 @@ run:
 ## clean: remove compiled binary
 clean:
 	rm -f $(BINARY)
+
+## install-hooks: symlink scripts/pre-push into .git/hooks
+install-hooks:
+	ln -sf ../../scripts/pre-push .git/hooks/pre-push
 
 ## help: list all available targets
 help:

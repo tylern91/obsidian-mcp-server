@@ -35,9 +35,14 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ inputs.version }}
+  cancel-in-progress: false
+
 jobs:
   upload-assets:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -57,6 +62,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          persist-credentials: false
           ref: ${{ inputs.version }}
 
       - uses: actions/setup-go@v6
@@ -118,11 +124,13 @@ jobs:
     needs: upload-assets
     if: inputs.refresh_notes
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v7
         with:
+          persist-credentials: false
           fetch-depth: 0
           ref: ${{ inputs.version }}
 
@@ -171,10 +179,13 @@ jobs:
     needs: upload-assets
     if: inputs.sync_homebrew && vars.HOMEBREW_SYNC_ENABLED == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Mint tap-scoped App token
         id: app-token
