@@ -205,9 +205,12 @@ jobs:
 
       - name: Mark created
         id: mark
+        env:
+          NOTES_CHARS: ${{ steps.notes.outputs.chars }}
+          DRY_RUN: ${{ steps.ctx.outputs.dry_run }}
         run: |
           created=false
-          if [ "${{ steps.notes.outputs.chars }}" -ge 10 ] && [ "${{ steps.ctx.outputs.dry_run }}" != "true" ]; then
+          if [ "$NOTES_CHARS" -ge 10 ] && [ "$DRY_RUN" != "true" ]; then
             created=true
           fi
           echo "created=$created" >> "$GITHUB_OUTPUT"
