@@ -30,11 +30,7 @@ permissions:
 
 jobs:
   release:
-    if: |
-      vars.RELEASE_ENABLED == 'true' &&
-      (github.event_name == 'workflow_dispatch' ||
-       (github.event.pull_request.merged == true &&
-        !contains(github.event.pull_request.labels.*.name, 'skip-release')))
+    if: ${{ vars.RELEASE_ENABLED == 'true' && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true && !contains(github.event.pull_request.labels.*.name, 'skip-release'))) }}
     runs-on: ubuntu-latest
     outputs:
       created: ${{ steps.mark.outputs.created }}
@@ -218,6 +214,8 @@ jobs:
   publish:
     needs: release
     if: needs.release.outputs.created == 'true'
+    permissions:
+      contents: write
     uses: ./.github/workflows/publish-assets.yml
     with:
       version: ${{ needs.release.outputs.version }}
