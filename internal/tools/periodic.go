@@ -12,7 +12,7 @@ import (
 
 const defaultPeriodicCount = 5
 
-func registerGetPeriodicNote(s *server.MCPServer, deps Deps) {
+func getPeriodicNoteSpec(deps Deps) toolSpec {
 	tool := mcp.NewTool("get_periodic_note",
 		mcp.WithDescription("Get a periodic note (daily, weekly, monthly, quarterly, or yearly)"),
 		mcp.WithString("granularity",
@@ -33,7 +33,7 @@ func registerGetPeriodicNote(s *server.MCPServer, deps Deps) {
 		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(false),
 	)
-	s.AddTool(tool, getPeriodicNoteHandler(deps))
+	return newToolSpec(tool, getPeriodicNoteHandler(deps))
 }
 
 func getPeriodicNoteHandler(deps Deps) server.ToolHandlerFunc {
@@ -92,7 +92,7 @@ func getPeriodicNoteHandler(deps Deps) server.ToolHandlerFunc {
 	}
 }
 
-func registerGetRecentPeriodicNotes(s *server.MCPServer, deps Deps) {
+func getRecentPeriodicNotesSpec(deps Deps) toolSpec {
 	tool := mcp.NewTool("get_recent_periodic_notes",
 		mcp.WithDescription("Get the N most recent periodic notes"),
 		mcp.WithString("granularity",
@@ -113,7 +113,7 @@ func registerGetRecentPeriodicNotes(s *server.MCPServer, deps Deps) {
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
 	)
-	s.AddTool(tool, getRecentPeriodicNotesHandler(deps))
+	return newToolSpec(tool, getRecentPeriodicNotesHandler(deps))
 }
 
 func getRecentPeriodicNotesHandler(deps Deps) server.ToolHandlerFunc {

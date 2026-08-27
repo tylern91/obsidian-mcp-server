@@ -38,7 +38,7 @@ type auditEntry struct {
 // defaultAuditClasses is the full set of classes run when none are specified.
 var defaultAuditClasses = []string{"orphans", "dangling-links", "untagged", "duplicate-titles"}
 
-func registerAuditNotes(s *server.MCPServer, deps Deps) {
+func auditNotesSpec(deps Deps) toolSpec {
 	tool := mcp.NewTool("audit_notes",
 		mcp.WithDescription("Audit the vault for hygiene issues: orphans, dangling links, untagged notes, and duplicate titles"),
 		mcp.WithString("classes",
@@ -54,7 +54,7 @@ func registerAuditNotes(s *server.MCPServer, deps Deps) {
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
 	)
-	s.AddTool(tool, auditNotesHandler(deps))
+	return newToolSpec(tool, auditNotesHandler(deps))
 }
 
 func auditNotesHandler(deps Deps) server.ToolHandlerFunc {

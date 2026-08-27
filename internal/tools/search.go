@@ -9,7 +9,7 @@ import (
 	"github.com/tylern91/obsidian-mcp-server/internal/search"
 )
 
-func registerSearchNotes(s *server.MCPServer, deps Deps) {
+func searchNotesSpec(deps Deps) toolSpec {
 	tool := mcp.NewTool("search_notes",
 		mcp.WithDescription("Search vault notes using BM25 ranked full-text search. Returns results sorted by relevance score."),
 		mcp.WithString("query",
@@ -40,7 +40,7 @@ func registerSearchNotes(s *server.MCPServer, deps Deps) {
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
 	)
-	s.AddTool(tool, searchNotesHandler(deps))
+	return newToolSpec(tool, searchNotesHandler(deps))
 }
 
 func searchNotesHandler(deps Deps) server.ToolHandlerFunc {
@@ -81,7 +81,7 @@ func searchNotesHandler(deps Deps) server.ToolHandlerFunc {
 	}
 }
 
-func registerSearchRegex(s *server.MCPServer, deps Deps) {
+func searchRegexSpec(deps Deps) toolSpec {
 	tool := mcp.NewTool("search_regex",
 		mcp.WithDescription("Search vault notes using a regex or glob pattern."),
 		mcp.WithString("pattern",
@@ -107,7 +107,7 @@ func registerSearchRegex(s *server.MCPServer, deps Deps) {
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
 	)
-	s.AddTool(tool, searchRegexHandler(deps))
+	return newToolSpec(tool, searchRegexHandler(deps))
 }
 
 func searchRegexHandler(deps Deps) server.ToolHandlerFunc {

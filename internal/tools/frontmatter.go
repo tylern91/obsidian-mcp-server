@@ -8,7 +8,7 @@ import (
 	"github.com/tylern91/obsidian-mcp-server/internal/response"
 )
 
-func registerGetFrontmatter(s *server.MCPServer, deps Deps) {
+func getFrontmatterSpec(deps Deps) toolSpec {
 	tool := mcp.NewTool("get_frontmatter",
 		mcp.WithDescription("Read the YAML frontmatter of a note. Returns key-value pairs and the note body."),
 		mcp.WithString("path",
@@ -21,7 +21,7 @@ func registerGetFrontmatter(s *server.MCPServer, deps Deps) {
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
 	)
-	s.AddTool(tool, getFrontmatterHandler(deps))
+	return newToolSpec(tool, getFrontmatterHandler(deps))
 }
 
 func getFrontmatterHandler(deps Deps) server.ToolHandlerFunc {
@@ -49,7 +49,7 @@ func getFrontmatterHandler(deps Deps) server.ToolHandlerFunc {
 	}
 }
 
-func registerUpdateFrontmatter(s *server.MCPServer, deps Deps) {
+func updateFrontmatterSpec(deps Deps) toolSpec {
 	tool := mcp.NewTool("update_frontmatter",
 		mcp.WithDescription("Update YAML frontmatter fields in a note. Preserves existing key ordering. Use updates to set/overwrite keys and removeKeys to delete keys."),
 		mcp.WithString("path",
@@ -68,7 +68,7 @@ func registerUpdateFrontmatter(s *server.MCPServer, deps Deps) {
 		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(true),
 	)
-	s.AddTool(tool, updateFrontmatterHandler(deps))
+	return newToolSpec(tool, updateFrontmatterHandler(deps))
 }
 
 func updateFrontmatterHandler(deps Deps) server.ToolHandlerFunc {

@@ -9,7 +9,7 @@ import (
 	"github.com/tylern91/obsidian-mcp-server/internal/vault"
 )
 
-func registerManageTags(s *server.MCPServer, deps Deps) {
+func manageTagsSpec(deps Deps) toolSpec {
 	tool := mcp.NewTool("manage_tags",
 		mcp.WithDescription("Add or remove a tag on a note. Use location to control where new tags are placed."),
 		mcp.WithString("path",
@@ -36,7 +36,7 @@ func registerManageTags(s *server.MCPServer, deps Deps) {
 		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(true),
 	)
-	s.AddTool(tool, manageTagsHandler(deps))
+	return newToolSpec(tool, manageTagsHandler(deps))
 }
 
 func manageTagsHandler(deps Deps) server.ToolHandlerFunc {
@@ -83,7 +83,7 @@ func manageTagsHandler(deps Deps) server.ToolHandlerFunc {
 	}
 }
 
-func registerListAllTags(s *server.MCPServer, deps Deps) {
+func listAllTagsSpec(deps Deps) toolSpec {
 	tool := mcp.NewTool("list_all_tags",
 		mcp.WithDescription("Aggregate all tags across the entire vault with usage counts."),
 		mcp.WithBoolean("prettyPrint",
@@ -92,7 +92,7 @@ func registerListAllTags(s *server.MCPServer, deps Deps) {
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
 	)
-	s.AddTool(tool, listAllTagsHandler(deps))
+	return newToolSpec(tool, listAllTagsHandler(deps))
 }
 
 func listAllTagsHandler(deps Deps) server.ToolHandlerFunc {

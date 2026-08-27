@@ -14,7 +14,7 @@ import (
 const defaultMaxBatch = 10
 const defaultHeadChars = 200
 
-func registerReadMultipleNotes(s *server.MCPServer, deps Deps) {
+func readMultipleNotesSpec(deps Deps) toolSpec {
 	tool := mcp.NewTool("read_multiple_notes",
 		mcp.WithDescription("Read the content of multiple notes in a single request"),
 		mcp.WithString("paths",
@@ -34,7 +34,7 @@ func registerReadMultipleNotes(s *server.MCPServer, deps Deps) {
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
 	)
-	s.AddTool(tool, readMultipleNotesHandler(deps))
+	return newToolSpec(tool, readMultipleNotesHandler(deps))
 }
 
 func readMultipleNotesHandler(deps Deps) server.ToolHandlerFunc {
@@ -110,7 +110,7 @@ func readMultipleNotesHandler(deps Deps) server.ToolHandlerFunc {
 	}
 }
 
-func registerGetNotesInfo(s *server.MCPServer, deps Deps) {
+func getNotesInfoSpec(deps Deps) toolSpec {
 	tool := mcp.NewTool("get_notes_info",
 		mcp.WithDescription("Get metadata for multiple notes without reading full content"),
 		mcp.WithString("paths",
@@ -123,7 +123,7 @@ func registerGetNotesInfo(s *server.MCPServer, deps Deps) {
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
 	)
-	s.AddTool(tool, getNotesInfoHandler(deps))
+	return newToolSpec(tool, getNotesInfoHandler(deps))
 }
 
 func getNotesInfoHandler(deps Deps) server.ToolHandlerFunc {
@@ -187,7 +187,7 @@ func getNotesInfoHandler(deps Deps) server.ToolHandlerFunc {
 	}
 }
 
-func registerGetVaultStats(s *server.MCPServer, deps Deps) {
+func getVaultStatsSpec(deps Deps) toolSpec {
 	tool := mcp.NewTool("get_vault_stats",
 		mcp.WithDescription("Get aggregate statistics about the entire vault"),
 		mcp.WithBoolean("includeTokenCounts",
@@ -199,7 +199,7 @@ func registerGetVaultStats(s *server.MCPServer, deps Deps) {
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
 	)
-	s.AddTool(tool, getVaultStatsHandler(deps))
+	return newToolSpec(tool, getVaultStatsHandler(deps))
 }
 
 func getVaultStatsHandler(deps Deps) server.ToolHandlerFunc {

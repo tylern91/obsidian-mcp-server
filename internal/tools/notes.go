@@ -10,7 +10,7 @@ import (
 	"github.com/tylern91/obsidian-mcp-server/internal/vault"
 )
 
-func registerReadNote(s *server.MCPServer, deps Deps) {
+func readNoteSpec(deps Deps) toolSpec {
 	tool := mcp.NewTool("read_note",
 		mcp.WithDescription("Read a note from the vault. Returns content and metadata."),
 		mcp.WithString("path",
@@ -23,7 +23,7 @@ func registerReadNote(s *server.MCPServer, deps Deps) {
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
 	)
-	s.AddTool(tool, readNoteHandler(deps))
+	return newToolSpec(tool, readNoteHandler(deps))
 }
 
 func readNoteHandler(deps Deps) server.ToolHandlerFunc {
@@ -58,7 +58,7 @@ func readNoteHandler(deps Deps) server.ToolHandlerFunc {
 	}
 }
 
-func registerWriteNote(s *server.MCPServer, deps Deps) {
+func writeNoteSpec(deps Deps) toolSpec {
 	tool := mcp.NewTool("write_note",
 		mcp.WithDescription("Write or update a note in the vault."),
 		mcp.WithString("path",
@@ -80,7 +80,7 @@ func registerWriteNote(s *server.MCPServer, deps Deps) {
 		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(true),
 	)
-	s.AddTool(tool, writeNoteHandler(deps))
+	return newToolSpec(tool, writeNoteHandler(deps))
 }
 
 func writeNoteHandler(deps Deps) server.ToolHandlerFunc {

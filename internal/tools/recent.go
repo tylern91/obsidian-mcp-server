@@ -14,7 +14,7 @@ import (
 
 const defaultRecentLimit = 10
 
-func registerGetRecentChanges(s *server.MCPServer, deps Deps) {
+func getRecentChangesSpec(deps Deps) toolSpec {
 	tool := mcp.NewTool("get_recent_changes",
 		mcp.WithDescription("List notes most recently modified in the vault"),
 		mcp.WithNumber("limit",
@@ -33,7 +33,7 @@ func registerGetRecentChanges(s *server.MCPServer, deps Deps) {
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
 	)
-	s.AddTool(tool, recentChangesHandler(deps))
+	return newToolSpec(tool, recentChangesHandler(deps))
 }
 
 func recentChangesHandler(deps Deps) server.ToolHandlerFunc {

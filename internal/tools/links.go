@@ -8,7 +8,7 @@ import (
 	"github.com/tylern91/obsidian-mcp-server/internal/response"
 )
 
-func registerGetBacklinks(s *server.MCPServer, deps Deps) {
+func getBacklinksSpec(deps Deps) toolSpec {
 	tool := mcp.NewTool("get_backlinks",
 		mcp.WithDescription("Find all notes in the vault that link to the specified note."),
 		mcp.WithString("path",
@@ -21,7 +21,7 @@ func registerGetBacklinks(s *server.MCPServer, deps Deps) {
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
 	)
-	s.AddTool(tool, getBacklinksHandler(deps))
+	return newToolSpec(tool, getBacklinksHandler(deps))
 }
 
 func getBacklinksHandler(deps Deps) server.ToolHandlerFunc {

@@ -14,7 +14,7 @@ import (
 // defaultMaxDirEntries caps listing output when no explicit limit is set.
 const defaultMaxDirEntries = 50
 
-func registerListDirectory(s *server.MCPServer, deps Deps) {
+func listDirectorySpec(deps Deps) toolSpec {
 	tool := mcp.NewTool("list_directory",
 		mcp.WithDescription("List files and directories in the vault. "+
 			"Supports glob filtering, file/dir type filtering, limit+offset pagination, "+
@@ -47,7 +47,7 @@ func registerListDirectory(s *server.MCPServer, deps Deps) {
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
 	)
-	s.AddTool(tool, listDirectoryHandler(deps))
+	return newToolSpec(tool, listDirectoryHandler(deps))
 }
 
 func listDirectoryHandler(deps Deps) server.ToolHandlerFunc {
