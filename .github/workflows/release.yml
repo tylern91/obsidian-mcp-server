@@ -214,6 +214,8 @@ jobs:
   publish:
     needs: release
     if: needs.release.outputs.created == 'true'
+    permissions:
+      contents: write
     uses: ./.github/workflows/publish-assets.yml
     with:
       version: ${{ needs.release.outputs.version }}
