@@ -49,6 +49,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+**`MaxResults` is now a hard ceiling on every result-bounded tool**
+- Previously `deps.MaxResults` (`--max-results` / `OBSIDIAN_MAX_RESULTS`) behaved inconsistently:
+  it was only a *fallback default* for `list_directory` (an explicit `limit` above it was honored
+  in full), a real ceiling for `get_recent_changes` and `get_recent_periodic_notes`, and was not
+  applied at all for `search_notes` / `search_regex`. All five tools now clamp their effective
+  limit to `MaxResults` regardless of what the caller requests. If you were relying on an explicit
+  `limit` to exceed `MaxResults` for `list_directory`, `search_notes`, or `search_regex`, raise
+  `--max-results` instead.
+
 **Minimum requirements**
 - Go build/toolchain floor raised `1.23` → `1.27.0`. Building from source with `GOTOOLCHAIN=local`
   now requires Go 1.27+; `GOTOOLCHAIN=auto` (the Go 1.21+ default) upgrades automatically.

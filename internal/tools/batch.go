@@ -54,12 +54,7 @@ func readMultipleNotesHandler(deps Deps) server.ToolHandlerFunc {
 		if maxBatch <= 0 {
 			maxBatch = defaultMaxBatch
 		}
-
-		truncated := false
-		if len(paths) > maxBatch {
-			paths = paths[:maxBatch]
-			truncated = true
-		}
+		paths, truncated := clampBatch(paths, maxBatch)
 
 		type noteEntry struct {
 			Path       string  `json:"path"`
@@ -137,12 +132,7 @@ func getNotesInfoHandler(deps Deps) server.ToolHandlerFunc {
 		if maxBatch <= 0 {
 			maxBatch = defaultMaxBatch
 		}
-
-		truncated := false
-		if len(paths) > maxBatch {
-			paths = paths[:maxBatch]
-			truncated = true
-		}
+		paths, truncated := clampBatch(paths, maxBatch)
 
 		type infoEntry struct {
 			Path      string  `json:"path"`

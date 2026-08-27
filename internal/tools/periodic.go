@@ -123,18 +123,7 @@ func getRecentPeriodicNotesHandler(deps Deps) server.ToolHandlerFunc {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		count := req.GetInt("count", defaultPeriodicCount)
-		if count <= 0 {
-			count = defaultPeriodicCount
-		}
-
-		maxResults := deps.MaxResults
-		if maxResults <= 0 {
-			maxResults = 20
-		}
-		if count > maxResults {
-			count = maxResults
-		}
+		count := effectiveLimit(req.GetInt("count", defaultPeriodicCount), defaultPeriodicCount, deps.MaxResults)
 
 		// summary defaults to true when not provided
 		summary := req.GetBool("summary", true)

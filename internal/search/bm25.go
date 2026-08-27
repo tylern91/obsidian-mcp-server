@@ -41,6 +41,10 @@ type BM25Options struct {
 	// Limit caps the number of results returned. 0 uses default (20).
 	Limit int
 
+	// MaxResults, when > 0, is an upper ceiling applied to the effective
+	// limit regardless of Limit or the default. 0 means uncapped.
+	MaxResults int
+
 	// MaxMatchesPerFile caps snippet lines collected per file. 0 uses default (3).
 	MaxMatchesPerFile int
 
@@ -330,6 +334,9 @@ func (s *Service) SearchBM25(ctx context.Context, opts BM25Options) ([]BM25Resul
 	limit := opts.Limit
 	if limit <= 0 {
 		limit = defaultBM25Limit
+	}
+	if opts.MaxResults > 0 && limit > opts.MaxResults {
+		limit = opts.MaxResults
 	}
 	maxPerFile := opts.MaxMatchesPerFile
 	if maxPerFile <= 0 {

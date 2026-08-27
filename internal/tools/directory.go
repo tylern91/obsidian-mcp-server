@@ -59,13 +59,7 @@ func listDirectoryHandler(deps Deps) server.ToolHandlerFunc {
 		offset := req.GetInt("offset", 0)
 		concise := req.GetBool("concise", true)
 
-		// Resolve effective limit: caller → deps.MaxResults → hard default.
-		if limit <= 0 {
-			limit = deps.MaxResults
-		}
-		if limit <= 0 {
-			limit = defaultMaxDirEntries
-		}
+		limit = effectiveLimit(limit, defaultMaxDirEntries, deps.MaxResults)
 		if offset < 0 {
 			offset = 0
 		}

@@ -53,6 +53,7 @@ func searchNotesHandler(deps Deps) server.ToolHandlerFunc {
 		opts := search.BM25Options{
 			Query:             query,
 			Limit:             req.GetInt("limit", 0),
+			MaxResults:        deps.MaxResults,
 			MaxMatchesPerFile: req.GetInt("maxMatchesPerFile", 0),
 			CaseSensitive:     req.GetBool("caseSensitive", false),
 			SearchContent:     req.GetBool("searchContent", true),
@@ -123,6 +124,7 @@ func searchRegexHandler(deps Deps) server.ToolHandlerFunc {
 			IsGlob:            req.GetBool("isGlob", false),
 			Scope:             scope,
 			Limit:             req.GetInt("limit", 0),
+			MaxResults:        deps.MaxResults,
 			MaxMatchesPerFile: req.GetInt("maxMatchesPerFile", 0),
 		}
 

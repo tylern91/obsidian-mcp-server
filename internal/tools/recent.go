@@ -38,17 +38,7 @@ func getRecentChangesSpec(deps Deps) toolSpec {
 
 func recentChangesHandler(deps Deps) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		limit := req.GetInt("limit", defaultRecentLimit)
-		if limit <= 0 {
-			limit = defaultRecentLimit
-		}
-		maxResults := deps.MaxResults
-		if maxResults <= 0 {
-			maxResults = 20
-		}
-		if limit > maxResults {
-			limit = maxResults
-		}
+		limit := effectiveLimit(req.GetInt("limit", defaultRecentLimit), defaultRecentLimit, deps.MaxResults)
 
 		sinceStr := req.GetString("since", "")
 		var sinceTime time.Time
