@@ -65,7 +65,7 @@ func weeklyReviewHandler(deps Deps) server.PromptHandlerFunc {
 				continue
 			}
 			found++
-			sb.WriteString(fmt.Sprintf("## %s (%s)\n%s\n\n", d.Format("Monday, Jan 2"), note.Path, note.Content))
+			fmt.Fprintf(&sb, "## %s (%s)\n%s\n\n", d.Format("Monday, Jan 2"), note.Path, note.Content)
 		}
 
 		if found == 0 {

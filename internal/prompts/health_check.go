@@ -103,16 +103,16 @@ func buildHealthReport(ctx context.Context, deps Deps) (string, error) {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Vault health report (%d notes total)\n\n", len(all)))
+	fmt.Fprintf(&sb, "Vault health report (%d notes total)\n\n", len(all))
 
 	cap10 := func(label string, items []string) {
-		sb.WriteString(fmt.Sprintf("### %s (%d)\n", label, len(items)))
+		fmt.Fprintf(&sb, "### %s (%d)\n", label, len(items))
 		for i, item := range items {
 			if i >= 10 {
-				sb.WriteString(fmt.Sprintf("  ... and %d more\n", len(items)-10))
+				fmt.Fprintf(&sb, "  ... and %d more\n", len(items)-10)
 				break
 			}
-			sb.WriteString(fmt.Sprintf("  - %s\n", item))
+			fmt.Fprintf(&sb, "  - %s\n", item)
 		}
 		sb.WriteString("\n")
 	}

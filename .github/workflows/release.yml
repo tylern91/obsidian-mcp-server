@@ -1,0 +1,224 @@
+name: release
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      label:
+        description: "Version bump label"
+        required: true
+        type: choice
+        options: [major, minor, patch]
+      pr_number:
+        description: "PR number to source release notes/migration from (optional)"
+        required: false
+        type: string
+      dry_run:
+        description: "Compute everything but do not tag/publish"
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    if: |
+      vars.RELEASE_ENABLED == 'true' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.pull_request.merged == true &&
+        !contains(github.event.pull_request.labels.*.name, 'skip-release')))
+    runs-on: ubuntu-latest
+    outputs:
+      created: ${{ steps.mark.outputs.created }}
+      version: ${{ steps.ver.outputs.next }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Mint scoped App token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.HOMEBREW_APP_ID }}
+          private-key: ${{ secrets.HOMEBREW_APP_PRIVATE_KEY }}
+          owner: tylern91
+          repositories: obsidian-mcp-server
+
+      - name: Resolve trigger context
+        id: ctx
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_LABEL: ${{ github.event.inputs.label }}
+          DISPATCH_PR: ${{ github.event.inputs.pr_number }}
+          DISPATCH_DRY_RUN: ${{ github.event.inputs.dry_run }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: |
+          set -Eeuo pipefail
+          breaking=false
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            label="$DISPATCH_LABEL"
+            pr_number="${DISPATCH_PR:-}"
+            dry_run="${DISPATCH_DRY_RUN:-false}"
+          else
+            pr_number="$PR_NUMBER"
+            dry_run=false
+            label="patch"
+            if printf '%s' "$PR_LABELS" | tr ',' '\n' | grep -qx 'semver:major'; then
+              label="major"
+            elif printf '%s' "$PR_LABELS" | tr ',' '\n' | grep -qx 'semver:minor'; then
+              label="minor"
+            fi
+            # Pre-1.0, breaking changes take the minor slot, not major.
+            if printf '%s' "$PR_TITLE" | grep -qE '^[a-z]+(\([^)]+\))?!:' \
+               || printf '%s' "$PR_BODY" | grep -qE '^BREAKING CHANGE:'; then
+              breaking=true
+              [ "$label" = "patch" ] && label="minor"
+            fi
+          fi
+          {
+            echo "label=$label"
+            echo "breaking=$breaking"
+            echo "pr_number=$pr_number"
+            echo "dry_run=$dry_run"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Compute next version
+        id: ver
+        run: |
+          latest="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)"
+          latest="${latest:-v0.0.0}"
+          next="$(bash scripts/bump-version.sh "$latest" "${{ steps.ctx.outputs.label }}")"
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+          echo "next=$next" >> "$GITHUB_OUTPUT"
+
+      - name: Idempotency guard
+        run: |
+          if git rev-parse "${{ steps.ver.outputs.next }}" >/dev/null 2>&1; then
+            echo "::error::tag ${{ steps.ver.outputs.next }} already exists"
+            exit 1
+          fi
+
+      - name: Stamp CHANGELOG refs
+        env:
+          STAMP_HEAD_REF: HEAD
+        run: bash scripts/stamp-changelog-refs.sh "${{ steps.ver.outputs.next }}" || true
+
+      - name: Build release notes
+        id: notes
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          bash scripts/build-release-notes.sh \
+            "${{ steps.ver.outputs.next }}" "${{ steps.ctx.outputs.label }}" "${{ steps.ctx.outputs.breaking }}" \
+            --fallback-unreleased --prev "${{ steps.ver.outputs.latest }}" \
+            > /tmp/RELEASE_BODY.md
+          chars="$(wc -c < /tmp/RELEASE_BODY.md | tr -d ' ')"
+          echo "chars=$chars" >> "$GITHUB_OUTPUT"
+
+      - name: Empty notes guard
+        if: steps.notes.outputs.chars < 10
+        run: |
+          echo "::notice::release notes are empty — skipping release for ${{ steps.ver.outputs.next }}"
+          echo "skip=true" >> "$GITHUB_OUTPUT"
+
+      - name: Import GPG key
+        if: steps.notes.outputs.chars >= 10
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
+        run: |
+          set -Eeuo pipefail
+          if [ -z "${GPG_PRIVATE_KEY:-}" ]; then
+            echo "::error::GPG_PRIVATE_KEY secret is not set — refusing to publish an unsigned release"
+            exit 1
+          fi
+          tmp_key="$(mktemp)"
+          if printf '%s' "$GPG_PRIVATE_KEY" | grep -q 'BEGIN PGP PRIVATE KEY BLOCK'; then
+            printf '%s' "$GPG_PRIVATE_KEY" > "$tmp_key"
+          else
+            printf '%s' "$GPG_PRIVATE_KEY" | base64 -d > "$tmp_key" 2>/dev/null || {
+              echo "::error::GPG_PRIVATE_KEY is neither ASCII-armored nor base64-wrapped ASCII-armored"
+              exit 1
+            }
+          fi
+          if ! gpg --batch --import "$tmp_key"; then
+            echo "::error::failed to import GPG_PRIVATE_KEY"
+            exit 1
+          fi
+          rm -f "$tmp_key"
+          if ! echo "test" | gpg --batch --yes --pinentry-mode loopback \
+              --passphrase "$GPG_PASSPHRASE" --local-user "$GPG_KEY_ID" \
+              --sign >/dev/null; then
+            echo "::error::GPG test-sign failed — check GPG_PASSPHRASE / GPG_KEY_ID"
+            exit 1
+          fi
+          echo "gpg-ok=true" >> "$GITHUB_ENV"
+
+      - name: Configure git committer
+        if: steps.notes.outputs.chars >= 10
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "tylern91@users.noreply.github.com"
+
+      - name: Create signed tag
+        if: steps.notes.outputs.chars >= 10 && steps.ctx.outputs.dry_run != 'true'
+        env:
+          GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
+        run: |
+          set -Eeuo pipefail
+          if [ -z "${GPG_KEY_ID:-}" ]; then
+            echo "::error::refusing to publish an unsigned release tag"
+            exit 1
+          fi
+          git -c user.signingkey="$GPG_KEY_ID" tag -s "${{ steps.ver.outputs.next }}" \
+            -F /tmp/RELEASE_BODY.md
+          git push origin "${{ steps.ver.outputs.next }}"
+
+      - name: Create GitHub Release
+        if: steps.notes.outputs.chars >= 10 && steps.ctx.outputs.dry_run != 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          gh release create "${{ steps.ver.outputs.next }}" \
+            --title "${{ steps.ver.outputs.next }}" \
+            --notes-file /tmp/RELEASE_BODY.md \
+            --verify-tag
+
+      - name: Dry-run notice
+        if: steps.ctx.outputs.dry_run == 'true'
+        run: |
+          echo "::notice::dry run — would have tagged and released ${{ steps.ver.outputs.next }}"
+          cat /tmp/RELEASE_BODY.md
+
+      - name: Mark created
+        id: mark
+        env:
+          NOTES_CHARS: ${{ steps.notes.outputs.chars }}
+          DRY_RUN: ${{ steps.ctx.outputs.dry_run }}
+        run: |
+          created=false
+          if [ "$NOTES_CHARS" -ge 10 ] && [ "$DRY_RUN" != "true" ]; then
+            created=true
+          fi
+          echo "created=$created" >> "$GITHUB_OUTPUT"
+
+  publish:
+    needs: release
+    if: needs.release.outputs.created == 'true'
+    uses: ./.github/workflows/publish-assets.yml
+    with:
+      version: ${{ needs.release.outputs.version }}
+    secrets: inherit

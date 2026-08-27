@@ -1,5 +1,11 @@
 # obsidian-mcp-server
 
+[![CI](https://github.com/tylern91/obsidian-mcp-server/actions/workflows/go.yml/badge.svg)](https://github.com/tylern91/obsidian-mcp-server/actions/workflows/go.yml)
+[![Release](https://github.com/tylern91/obsidian-mcp-server/actions/workflows/release.yml/badge.svg)](https://github.com/tylern91/obsidian-mcp-server/releases)
+[![Go Report Card](https://goreportcard.com/badge/github.com/tylern91/obsidian-mcp-server)](https://goreportcard.com/report/github.com/tylern91/obsidian-mcp-server)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/tylern91/obsidian-mcp-server)](go.mod)
+
 A Go [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server for [Obsidian](https://obsidian.md) vaults. It gives AI agents and development tools direct filesystem access to your vault — no running Obsidian instance required.
 
 ## Features
@@ -121,6 +127,28 @@ Static resources (`obsidian://vault/*`) are always available in the resource pic
 
 ## Installation
 
+### Release binary
+
+Download a prebuilt binary from the [latest release](https://github.com/tylern91/obsidian-mcp-server/releases/latest), verify its checksum, and install:
+
+```bash
+# macOS (Apple Silicon) — swap the asset name for your platform (darwin-amd64, linux-amd64, linux-arm64)
+curl -fLO https://github.com/tylern91/obsidian-mcp-server/releases/latest/download/obsidian-mcp-<version>-darwin-arm64.tar.gz
+curl -fLO https://github.com/tylern91/obsidian-mcp-server/releases/latest/download/obsidian-mcp-<version>-darwin-arm64.tar.gz.sha256
+shasum -a 256 -c obsidian-mcp-<version>-darwin-arm64.tar.gz.sha256
+tar -xf obsidian-mcp-<version>-darwin-arm64.tar.gz
+install -m 0755 obsidian-mcp ~/.local/bin/obsidian-mcp
+```
+
+### Homebrew (macOS/Linux)
+
+```bash
+brew tap tylern91/obsidian-mcp
+brew install obsidian-mcp
+```
+
+### go install
+
 Requires Go 1.27+ to build from source. Building with `GOTOOLCHAIN=local` on an older Go
 requires upgrading first — `GOTOOLCHAIN=auto` (the default since Go 1.21) downloads a matching
 toolchain automatically.
@@ -129,7 +157,11 @@ toolchain automatically.
 go install github.com/tylern91/obsidian-mcp-server/cmd/obsidian-mcp@latest
 ```
 
-Or build from source:
+### Build from source
+
+Requires Go 1.27+. Building with `GOTOOLCHAIN=local` on an older Go
+requires upgrading first — `GOTOOLCHAIN=auto` (the default since Go 1.21) downloads a matching
+toolchain automatically.
 
 ```bash
 git clone https://github.com/tylern91/obsidian-mcp-server.git
@@ -249,4 +281,4 @@ make help     # list all targets
 
 ## License
 
-[GPL-3.0](LICENSE)
+[Apache-2.0](LICENSE)
