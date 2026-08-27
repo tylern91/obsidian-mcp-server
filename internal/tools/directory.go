@@ -52,12 +52,12 @@ func registerListDirectory(s *server.MCPServer, deps Deps) {
 
 func listDirectoryHandler(deps Deps) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path       := req.GetString("path", "")
-		filter     := req.GetString("filter", "")
+		path := req.GetString("path", "")
+		filter := req.GetString("filter", "")
 		typeFilter := req.GetString("type", "all")
-		limit      := req.GetInt("limit", 0)
-		offset     := req.GetInt("offset", 0)
-		concise    := req.GetBool("concise", true)
+		limit := req.GetInt("limit", 0)
+		offset := req.GetInt("offset", 0)
+		concise := req.GetBool("concise", true)
 		prettyPrint := req.GetBool("prettyPrint", deps.PrettyPrint)
 
 		// Resolve effective limit: caller → deps.MaxResults → hard default.
