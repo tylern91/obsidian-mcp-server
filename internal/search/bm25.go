@@ -2,6 +2,7 @@ package search
 
 import (
 	"context"
+	"log/slog"
 	"math"
 	"os"
 	"path/filepath"
@@ -9,9 +10,15 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/tylern91/obsidian-mcp-server/internal/markdown"
 	"github.com/tylern91/obsidian-mcp-server/internal/response"
 	"github.com/tylern91/obsidian-mcp-server/internal/vault"
 )
+
+// maxBM25Docs caps the number of notes cached in memory during a single
+// SearchBM25 call, to bound memory growth (each doc retains its full raw
+// content for snippet extraction) on very large vaults.
+const maxBM25Docs = 10_000
 
 // BM25 Okapi parameters.
 const (
@@ -96,6 +103,45 @@ func MatchesPathScope(rel, scope string) bool {
 	return re.MatchString(rel)
 }
 
+// isPhraseKey reports whether term is a phrase-bigram key produced by
+// buildTerms, rather than a literal individual token.
+func isPhraseKey(term string) bool {
+	return strings.Contains(term, phraseKeySep)
+}
+
+// pathScopeMatcher precompiles a PathScope glob once so repeated matching
+// (once per note during a WalkNotes callback) doesn't recompile the regex
+// fallback on every call.
+type pathScopeMatcher struct {
+	scope string
+	re    *regexp.Regexp // nil when scope is empty or invalid
+}
+
+func newPathScopeMatcher(scope string) *pathScopeMatcher {
+	m := &pathScopeMatcher{scope: scope}
+	if scope == "" {
+		return m
+	}
+	if re, err := regexp.Compile(globToRegex(scope)); err == nil {
+		m.re = re
+	}
+	return m
+}
+
+func (m *pathScopeMatcher) matches(rel string) bool {
+	if m.scope == "" {
+		return true
+	}
+	rel = filepath.ToSlash(rel)
+	if matched, err := filepath.Match(m.scope, rel); err == nil && matched {
+		return true
+	}
+	if m.re == nil {
+		return false
+	}
+	return m.re.MatchString(rel)
+}
+
 // buildTerms tokenizes the query into individual terms plus, for 2-token
 // queries, a consecutive-bigram phrase key ("term0\x00term1") that is scored
 // separately in BM25 to reward tight co-occurrence.
@@ -104,7 +150,7 @@ func buildTerms(query string, caseSensitive bool) []string {
 	if !caseSensitive {
 		query = strings.ToLower(query)
 	}
-	raw := Tokenize(query)
+	raw := markdown.Tokenize(query)
 	if len(raw) == 0 {
 		return nil
 	}
@@ -161,7 +207,10 @@ func flattenFrontmatter(raw string) string {
 	return sb.String()
 }
 
-// flattenAny recursively walks a parsed YAML value and writes all leaf strings.
+// flattenAny recursively walks a parsed YAML value and writes all leaf
+// strings. map[string]any keys are visited in sorted order so the flattened
+// output (and therefore tokenisation/term frequencies derived from it) is
+// deterministic across runs.
 func flattenAny(v any, sb *strings.Builder) {
 	switch val := v.(type) {
 	case string:
@@ -172,8 +221,13 @@ func flattenAny(v any, sb *strings.Builder) {
 			flattenAny(item, sb)
 		}
 	case map[string]any:
-		for _, v2 := range val {
-			flattenAny(v2, sb)
+		keys := make([]string, 0, len(val))
+		for k := range val {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			flattenAny(val[k], sb)
 		}
 	}
 }
@@ -183,7 +237,7 @@ func flattenAny(v any, sb *strings.Builder) {
 func readDoc(rel, abs string, terms []string, opts BM25Options) (*docContent, error) {
 	raw, err := os.ReadFile(abs)
 	if err != nil {
-		return nil, nil // treat unreadable as missing
+		return nil, err
 	}
 	content := string(raw)
 
@@ -208,7 +262,7 @@ func readDoc(rel, abs string, terms []string, opts BM25Options) (*docContent, er
 
 	// Body text (strip code fences).
 	if opts.SearchContent {
-		dc.bodyText = StripCodeFences(body)
+		dc.bodyText = markdown.StripCodeFences(body)
 	}
 
 	// Combined tokenisation for term frequencies and document length.
@@ -216,37 +270,38 @@ func readDoc(rel, abs string, terms []string, opts BM25Options) (*docContent, er
 	if !opts.CaseSensitive {
 		combined = strings.ToLower(combined)
 	}
-	dc.allTokens = Tokenize(combined)
+	dc.allTokens = markdown.Tokenize(combined)
 
 	for _, tok := range dc.allTokens {
 		dc.termFreq[tok]++
 	}
 
-	// Phrase bigram pass: identify the phrase key and individual terms,
-	// then count consecutive occurrences in the token list.
-	var indivTerms []string
-	var phraseKey string
+	// Phrase bigram pass: for the phrase key (if any), count consecutive
+	// occurrences of its own encoded token pair in the token list. The pair
+	// is derived by splitting the key itself, not from the deduplicated term
+	// list — using indivTerms[0:2] here would score the wrong word pair
+	// whenever query tokens repeat or terms dedup out of raw order (e.g.
+	// query "cat cat dog" encodes phraseKey "cat\x00cat" but indivTerms would
+	// be ["cat","dog"], counting "cat dog" instead of "cat cat").
 	for _, term := range terms {
-		if strings.Contains(term, phraseKeySep) {
-			phraseKey = term
-		} else {
-			indivTerms = append(indivTerms, term)
+		if !isPhraseKey(term) {
+			continue
 		}
-	}
-	if phraseKey != "" && len(indivTerms) >= 2 {
-		t0 := indivTerms[0]
-		t1 := indivTerms[1]
+		t0, t1, ok := strings.Cut(term, phraseKeySep)
+		if !ok {
+			continue
+		}
 		tokens := dc.allTokens
 		for i := 0; i+1 < len(tokens); i++ {
 			if tokens[i] == t0 && tokens[i+1] == t1 {
-				dc.termFreq[phraseKey]++
+				dc.termFreq[term]++
 			}
 		}
 	}
 
 	// Check title match (skip phrase key).
 	for _, term := range terms {
-		if strings.Contains(term, phraseKeySep) {
+		if isPhraseKey(term) {
 			continue
 		}
 		if strings.Contains(dc.titleStem, term) {
@@ -292,14 +347,19 @@ func (s *Service) SearchBM25(ctx context.Context, opts BM25Options) ([]BM25Resul
 	}
 	var totalTokens int
 	var docs []*docContent
+	scopeMatcher := newPathScopeMatcher(opts.PathScope)
 
 	err := s.vault.WalkNotes(ctx, func(rel, abs string) error {
-		if !MatchesPathScope(rel, opts.PathScope) {
+		if len(docs) >= maxBM25Docs {
+			return filepath.SkipAll
+		}
+		if !scopeMatcher.matches(rel) {
 			return nil
 		}
 
 		dc, err := readDoc(rel, abs, terms, opts)
-		if err != nil || dc == nil {
+		if err != nil {
+			slog.Warn("search_notes: read failed", "path", rel, "err", err)
 			return nil
 		}
 
@@ -356,38 +416,8 @@ func (s *Service) SearchBM25(ctx context.Context, opts BM25Options) ([]BM25Resul
 
 		// Determine reason by checking individual terms (not phrase key) against
 		// body and frontmatter text.
-		bodyMatch := false
-		fmMatch := false
-		if opts.SearchContent {
-			bodyLower := dc.bodyText
-			if !opts.CaseSensitive {
-				bodyLower = strings.ToLower(bodyLower)
-			}
-			for _, term := range terms {
-				if strings.Contains(term, phraseKeySep) {
-					continue
-				}
-				if strings.Contains(bodyLower, term) {
-					bodyMatch = true
-					break
-				}
-			}
-		}
-		if opts.SearchFrontmatter && dc.fmText != "" {
-			fmLower := dc.fmText
-			if !opts.CaseSensitive {
-				fmLower = strings.ToLower(fmLower)
-			}
-			for _, term := range terms {
-				if strings.Contains(term, phraseKeySep) {
-					continue
-				}
-				if strings.Contains(fmLower, term) {
-					fmMatch = true
-					break
-				}
-			}
-		}
+		bodyMatch := opts.SearchContent && anyTermIn(dc.bodyText, terms, opts.CaseSensitive)
+		fmMatch := opts.SearchFrontmatter && dc.fmText != "" && anyTermIn(dc.fmText, terms, opts.CaseSensitive)
 
 		var reason string
 		switch {
@@ -420,8 +450,11 @@ func (s *Service) SearchBM25(ctx context.Context, opts BM25Options) ([]BM25Resul
 		})
 	}
 
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].Score > results[j].Score
+	sort.SliceStable(results, func(i, j int) bool {
+		if results[i].Score != results[j].Score {
+			return results[i].Score > results[j].Score
+		}
+		return results[i].Path < results[j].Path
 	})
 
 	if len(results) > limit {
@@ -431,12 +464,29 @@ func (s *Service) SearchBM25(ctx context.Context, opts BM25Options) ([]BM25Resul
 	return results, nil
 }
 
+// anyTermIn reports whether any non-phrase-key term in terms is a substring
+// of text, honouring caseSensitive the same way term matching does elsewhere.
+func anyTermIn(text string, terms []string, caseSensitive bool) bool {
+	if !caseSensitive {
+		text = strings.ToLower(text)
+	}
+	for _, term := range terms {
+		if isPhraseKey(term) {
+			continue
+		}
+		if strings.Contains(text, term) {
+			return true
+		}
+	}
+	return false
+}
+
 // collectBM25Matches scans content line by line and collects up to maxMatches
 // lines that contain any of the given terms. Code-fenced lines are excluded —
 // matching is performed against the stripped version but snippets are taken
 // from the original lines. Returns BM25Match slice.
 func collectBM25Matches(content string, terms []string, maxMatches int, caseSensitive bool) []BM25Match {
-	stripped := StripCodeFences(content)
+	stripped := markdown.StripCodeFences(content)
 	origLines := strings.Split(content, "\n")
 	strippedLines := strings.Split(stripped, "\n")
 
@@ -454,7 +504,7 @@ func collectBM25Matches(content string, terms []string, maxMatches int, caseSens
 		}
 		for _, term := range terms {
 			// Phrase keys don't appear literally in text — skip them.
-			if strings.Contains(term, phraseKeySep) {
+			if isPhraseKey(term) {
 				continue
 			}
 			if strings.Contains(checkLine, term) {

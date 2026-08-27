@@ -2,8 +2,10 @@ package tools
 
 import (
 	"context"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -11,6 +13,17 @@ import (
 	"github.com/tylern91/obsidian-mcp-server/internal/response"
 	"github.com/tylern91/obsidian-mcp-server/internal/vault"
 )
+
+// sortedKeys returns the keys of m in ascending sorted order, for
+// deterministic iteration over a map when building output.
+func sortedKeys[T any](m map[string]T) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
 
 // maxAuditNotes caps the number of notes scanned in a single audit_notes call
 // to prevent unbounded memory growth on very large vaults.
@@ -99,6 +112,7 @@ func auditNotesHandler(deps Deps) server.ToolHandlerFunc {
 
 			data, readErr := os.ReadFile(abs)
 			if readErr != nil {
+				slog.Warn("audit_notes: read failed", "path", rel, "err", readErr)
 				return nil // skip unreadable
 			}
 			content := string(data)
@@ -145,7 +159,7 @@ func auditNotesHandler(deps Deps) server.ToolHandlerFunc {
 
 		if wantClass["orphans"] {
 			var all []auditEntry
-			for path := range ad.allPaths {
+			for _, path := range sortedKeys(ad.allPaths) {
 				hasTags := len(ad.tagsByPath[path]) > 0
 				hasIncoming := incomingCount[path] > 0
 				if !hasTags && !hasIncoming {
@@ -166,8 +180,8 @@ func auditNotesHandler(deps Deps) server.ToolHandlerFunc {
 		if wantClass["dangling-links"] {
 			var all []auditEntry
 		outerDangling:
-			for src, targets := range ad.linksByPath {
-				for _, target := range targets {
+			for _, src := range sortedKeys(ad.linksByPath) {
+				for _, target := range ad.linksByPath[src] {
 					resolved := resolveAuditLink(target, ad.allPaths, ad.stemToPath)
 					if resolved == "" {
 						// Dangling.
@@ -187,7 +201,7 @@ func auditNotesHandler(deps Deps) server.ToolHandlerFunc {
 
 		if wantClass["untagged"] {
 			var all []auditEntry
-			for path := range ad.allPaths {
+			for _, path := range sortedKeys(ad.allPaths) {
 				if len(ad.tagsByPath[path]) == 0 {
 					all = append(all, auditEntry{Path: path})
 					if len(all) > limit {
@@ -205,7 +219,8 @@ func auditNotesHandler(deps Deps) server.ToolHandlerFunc {
 		if wantClass["duplicate-titles"] {
 			var all []auditEntry
 		outerDup:
-			for stem, paths := range ad.notesByStem {
+			for _, stem := range sortedKeys(ad.notesByStem) {
+				paths := ad.notesByStem[stem]
 				if len(paths) < 2 {
 					continue
 				}

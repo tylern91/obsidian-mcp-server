@@ -3,7 +3,9 @@ package vault
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -12,6 +14,10 @@ import (
 
 	"github.com/tylern91/obsidian-mcp-server/internal/markdown"
 )
+
+// maxAggregateTagsNotes caps the number of notes scanned in a single
+// AggregateTags call to prevent unbounded memory growth on very large vaults.
+const maxAggregateTagsNotes = 10_000
 
 // tagRegex matches Obsidian-style inline tags: #tag preceded by start-of-line or
 // a non-word character.  The tag body must be Unicode letters, digits,
@@ -173,7 +179,7 @@ func (s *Service) AddTag(ctx context.Context, path, tag, location string) error 
 		location = "frontmatter"
 	}
 	if location != "frontmatter" && location != "inline" {
-		return fmt.Errorf("add_tag: invalid location %q: must be frontmatter or inline", location)
+		return &PathError{Op: "add_tag", Path: path, Err: fmt.Errorf("invalid location %q: must be frontmatter or inline", location)}
 	}
 
 	_, absPath, err := s.sanitizePath("add_tag", path)
@@ -204,7 +210,7 @@ func (s *Service) AddTag(ctx context.Context, path, tag, location string) error 
 	if hasFM {
 		var doc yaml.Node
 		if unmarshalErr := yaml.Unmarshal([]byte(rawFM), &doc); unmarshalErr != nil {
-			return fmt.Errorf("%w: %s", ErrInvalidFrontmatter, unmarshalErr.Error())
+			return &PathError{Op: "add_tag", Path: path, Err: fmt.Errorf("%w: %w", ErrInvalidFrontmatter, unmarshalErr)}
 		}
 		if doc.Kind == yaml.DocumentNode && len(doc.Content) > 0 {
 			mapping = doc.Content[0]
@@ -217,7 +223,7 @@ func (s *Service) AddTag(ctx context.Context, path, tag, location string) error 
 	if location == "frontmatter" {
 		content, err = addTagToFrontmatter(mapping, tag, body)
 		if err != nil {
-			return fmt.Errorf("add_tag: %w", err)
+			return &PathError{Op: "add_tag", Path: path, Err: err}
 		}
 	} else {
 		// Inline: append \n#tag to the body, then reassemble.
@@ -228,14 +234,17 @@ func (s *Service) AddTag(ctx context.Context, path, tag, location string) error 
 		newBody += "#" + tag + "\n"
 
 		if hasFM {
-			out, marshalErr := yaml.Marshal(mapping)
-			if marshalErr != nil {
-				return fmt.Errorf("add_tag: marshal: %w", marshalErr)
-			}
-			content = "---\n" + string(out) + "---\n" + newBody
+			// Reuse the original raw frontmatter text verbatim instead of
+			// re-marshaling the unchanged mapping, so untouched notes don't
+			// get a gratuitous YAML reformat.
+			content = "---\n" + rawFM + "---\n" + newBody
 		} else {
 			content = newBody
 		}
+	}
+
+	if content == string(data) {
+		return nil
 	}
 
 	if writeErr := os.WriteFile(absPath, []byte(content), 0644); writeErr != nil {
@@ -345,7 +354,7 @@ func (s *Service) RemoveTag(ctx context.Context, path, tag string) error {
 	if hasFM {
 		var doc yaml.Node
 		if unmarshalErr := yaml.Unmarshal([]byte(rawFM), &doc); unmarshalErr != nil {
-			return fmt.Errorf("%w: %s", ErrInvalidFrontmatter, unmarshalErr.Error())
+			return &PathError{Op: "remove_tag", Path: path, Err: fmt.Errorf("%w: %w", ErrInvalidFrontmatter, unmarshalErr)}
 		}
 		if doc.Kind == yaml.DocumentNode && len(doc.Content) > 0 {
 			mapping = doc.Content[0]
@@ -421,7 +430,7 @@ func (s *Service) RemoveTag(ctx context.Context, path, tag string) error {
 	if hasFM && mapping != nil {
 		marshaledFM, marshalErr := yaml.Marshal(mapping)
 		if marshalErr != nil {
-			return fmt.Errorf("remove_tag: marshal: %w", marshalErr)
+			return &PathError{Op: "remove_tag", Path: path, Err: fmt.Errorf("marshal: %w", marshalErr)}
 		}
 		assembled = "---\n" + string(marshaledFM) + "---\n" + newBody
 	} else {
@@ -482,11 +491,18 @@ func removeTagFenceCloser(line string, fenceChar byte, fenceLen int) bool {
 // the service mutex.
 func (s *Service) AggregateTags(ctx context.Context) (map[string]int, error) {
 	counts := make(map[string]int)
+	scanned := 0
 
 	err := s.WalkNotes(ctx, func(rel, abs string) error {
+		if scanned >= maxAggregateTagsNotes {
+			return filepath.SkipAll
+		}
+		scanned++
+
 		data, _, readErr := readNoteBytes(abs)
 		if readErr != nil {
-			return nil // skip unreadable and oversized files silently
+			slog.Warn("aggregate_tags: read failed", "path", rel, "err", readErr)
+			return nil // skip unreadable and oversized files
 		}
 
 		content := string(data)

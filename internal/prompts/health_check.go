@@ -3,6 +3,7 @@ package prompts
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -48,6 +49,7 @@ func buildHealthReport(ctx context.Context, deps Deps) (string, error) {
 	err := deps.Vault.WalkNotes(ctx, func(rel, _ string) error {
 		note, err := deps.Vault.ReadNote(ctx, rel)
 		if err != nil {
+			slog.Warn("vault_health_check: read note failed", "path", rel, "err", err)
 			return nil // skip unreadable notes
 		}
 		tags, _ := deps.Vault.ListTags(ctx, rel)

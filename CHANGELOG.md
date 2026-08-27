@@ -24,6 +24,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   paths (`C:foo`), NTFS alternate data streams (`note.md:hidden`), reserved device names (`NUL`,
   `CON`, `COM1`, etc.), and trailing dots/spaces that Windows silently strips.
 
+**`patch_note` heading matching is now consistent with the section-boundary scanner**
+- `isHeadingLine` accepted any line whose `#`-trimmed text matched the target heading, including
+  malformed ATX lines with no space after the `#` run (e.g. `#Introduction`). `headingLevel` — used
+  immediately afterward to find the end of the section — requires that space and treats such a line
+  as non-heading. The mismatch could return an empty level for the matched heading, corrupting the
+  same-or-higher-level scan used by `before`/`after`/`replace_body` patches. `isHeadingLine` now
+  requires the same ATX space rule as `headingLevel`.
+
+**BM25 phrase-bigram scoring counted the wrong word pair**
+- Multi-word search queries build a "phrase key" from the raw, pre-deduplication query tokens (e.g.
+  `"cat cat dog"` → phrase key `cat\x00cat`), but the bigram counter scanned the document using the
+  deduplicated term list (`["cat", "dog"]`), so it counted occurrences of "cat dog" and credited them
+  to the "cat cat" phrase bonus. Any query with a repeated word scored the wrong bigram. The counter
+  now derives the two words it counts from the phrase key itself.
+
 **Token counting no longer reaches the network**
 - `CountTokens` loaded the `cl100k_base` rank table via `tiktoken-go`'s default HTTP loader, which
   fetched `openaipublic.blob.core.windows.net` on a cold cache — a filesystem MCP server silently

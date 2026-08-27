@@ -95,12 +95,12 @@ func (s *Service) PatchNote(ctx context.Context, path string, p PatchOp) error {
 }
 
 // isHeadingLine reports whether line is a markdown heading with the given text.
+// A leading '#' run must be followed by a space to count as a heading (ATX
+// heading syntax), matching headingLevel's stricter rule — otherwise a
+// malformed line like "#Introduction" would match here but produce an empty
+// level from headingLevel, breaking the same-or-higher-level scan in PatchNote.
 func isHeadingLine(line, heading string) bool {
-	trimmed := strings.TrimLeft(line, "#")
-	if len(trimmed) == len(line) {
-		return false // no leading #
-	}
-	return strings.TrimSpace(trimmed) == heading
+	return headingLevel(line) != "" && strings.TrimSpace(strings.TrimLeft(line, "#")) == heading
 }
 
 // headingLevel returns the '#' prefix of a heading line, or "" if not a heading.

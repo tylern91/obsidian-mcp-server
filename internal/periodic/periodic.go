@@ -221,6 +221,9 @@ func (s *Service) Resolve(granularity string, offset int) (string, error) {
 
 // RecentDates returns the `count` most recent dates (descending) ending at now.
 func (s *Service) RecentDates(granularity string, count int) ([]time.Time, error) {
+	if count < 0 {
+		return nil, fmt.Errorf("periodic: count must be non-negative, got %d", count)
+	}
 	if _, err := applyOffset(granularity, time.Time{}, 0); err != nil {
 		return nil, fmt.Errorf("periodic: unknown granularity %q", granularity)
 	}

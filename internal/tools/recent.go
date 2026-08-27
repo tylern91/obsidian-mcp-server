@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"log/slog"
 	"os"
 	"sort"
 	"time"
@@ -68,6 +69,7 @@ func recentChangesHandler(deps Deps) server.ToolHandlerFunc {
 		walkErr := deps.Vault.WalkNotes(ctx, func(rel, abs string) error {
 			info, err := os.Stat(abs)
 			if err != nil {
+				slog.Warn("get_recent_changes: stat failed", "path", rel, "err", err)
 				return nil // skip unreadable files
 			}
 			mt := info.ModTime().UTC()
