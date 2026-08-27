@@ -56,11 +56,9 @@ func registerAuditNotes(s *server.MCPServer, deps Deps) {
 
 func auditNotesHandler(deps Deps) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		var classes []string
-		if classesStr := req.GetString("classes", ""); classesStr != "" {
-			if errResult := parseJSONArg(req, "classes", &classes); errResult != nil {
-				return errResult, nil
-			}
+		classes, errResult := optStringSlice(req, "classes")
+		if errResult != nil {
+			return errResult, nil
 		}
 		if len(classes) == 0 {
 			classes = defaultAuditClasses

@@ -101,6 +101,13 @@ func MergeNoteTags(content []byte) []string {
 	}
 	inlineTags := ExtractInlineTags(body)
 
+	return mergeTags(fmTags, inlineTags)
+}
+
+// mergeTags returns the deduplicated union of fmTags and inlineTags: frontmatter
+// tags first (in declared order), then inline tags not already present.
+// Deduplication is exact-string, case-sensitive.
+func mergeTags(fmTags, inlineTags []string) []string {
 	seen := make(map[string]struct{}, len(fmTags)+len(inlineTags))
 	out := make([]string, 0, len(fmTags)+len(inlineTags))
 	for _, t := range fmTags {
@@ -140,24 +147,7 @@ func (s *Service) ListTags(ctx context.Context, path string) ([]string, error) {
 
 	inlineTags := ExtractInlineTags(body)
 
-	// Merge: frontmatter tags first, then inline-only tags.
-	seen := make(map[string]struct{}, len(fmTags)+len(inlineTags))
-	out := make([]string, 0, len(fmTags)+len(inlineTags))
-
-	for _, t := range fmTags {
-		if _, dup := seen[t]; !dup {
-			seen[t] = struct{}{}
-			out = append(out, t)
-		}
-	}
-	for _, t := range inlineTags {
-		if _, dup := seen[t]; !dup {
-			seen[t] = struct{}{}
-			out = append(out, t)
-		}
-	}
-
-	return out, nil
+	return mergeTags(fmTags, inlineTags), nil
 }
 
 // AddTag adds tag to the note at path.
@@ -399,7 +389,7 @@ func (s *Service) RemoveTag(ctx context.Context, path, tag string) error {
 
 		if !inFence {
 			// Check whether this line opens a fence.
-			if ch, n := removeTagFenceOpener(trimmed); n > 0 {
+			if ch, n, ok := markdown.FenceOpener(trimmed); ok {
 				inFence = true
 				fenceChar = ch
 				fenceLen = n
@@ -417,7 +407,7 @@ func (s *Service) RemoveTag(ctx context.Context, path, tag string) error {
 			out = append(out, replaced)
 		} else {
 			// Inside a fence: check for closing delimiter.
-			if removeTagFenceCloser(trimmed, fenceChar, fenceLen) {
+			if markdown.IsFenceCloser(trimmed, fenceChar, fenceLen) {
 				inFence = false
 			}
 			out = append(out, line) // preserve fence content unchanged
@@ -442,45 +432,6 @@ func (s *Service) RemoveTag(ctx context.Context, path, tag string) error {
 	}
 
 	return nil
-}
-
-// removeTagFenceOpener reports whether line opens a fenced code block.
-// It returns the fence character ('`' or '~') and the run length (≥3) on match,
-// or 0, 0 when the line is not a fence opener.
-// The fence must start at column 0 and consist of 3 or more identical characters.
-func removeTagFenceOpener(line string) (byte, int) {
-	for _, ch := range []byte{'`', '~'} {
-		if len(line) >= 3 && line[0] == ch && line[1] == ch && line[2] == ch {
-			n := 3
-			for n < len(line) && line[n] == ch {
-				n++
-			}
-			return ch, n
-		}
-	}
-	return 0, 0
-}
-
-// removeTagFenceCloser reports whether line closes a fence that was opened with
-// fenceChar and run length fenceLen. A closer requires at least fenceLen
-// consecutive fenceChar characters, optionally followed by spaces only.
-func removeTagFenceCloser(line string, fenceChar byte, fenceLen int) bool {
-	if len(line) < fenceLen {
-		return false
-	}
-	i := 0
-	for i < len(line) && line[i] == fenceChar {
-		i++
-	}
-	if i < fenceLen {
-		return false
-	}
-	for ; i < len(line); i++ {
-		if line[i] != ' ' {
-			return false
-		}
-	}
-	return true
 }
 
 // AggregateTags walks the entire vault and returns a map from tag name to the

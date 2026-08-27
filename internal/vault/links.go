@@ -30,12 +30,7 @@ func ExtractLinks(content string) []string {
 	var out []string
 
 	for _, m := range combinedLinkRegex.FindAllStringSubmatch(content, -1) {
-		var target string
-		if m[1] != "" {
-			target = strings.TrimSpace(m[1])
-		} else if m[2] != "" {
-			target = strings.TrimSpace(m[2])
-		}
+		target := linkTarget(m)
 		if target == "" {
 			continue
 		}
@@ -46,6 +41,16 @@ func ExtractLinks(content string) []string {
 	}
 
 	return out
+}
+
+// linkTarget extracts the trimmed link target from a combinedLinkRegex
+// submatch, preferring the wikilink group (index 1) over the Markdown-link
+// group (index 2) — the same pick used by both ExtractLinks and GetBacklinks.
+func linkTarget(m []string) string {
+	if m[1] != "" {
+		return strings.TrimSpace(m[1])
+	}
+	return strings.TrimSpace(m[2])
 }
 
 // Backlink records a note that links to a target, with the line number and a
@@ -110,12 +115,7 @@ func (s *Service) GetBacklinks(ctx context.Context, targetPath string) ([]Backli
 			line := scanner.Text()
 
 			for _, m := range combinedLinkRegex.FindAllStringSubmatch(line, -1) {
-				var lt string
-				if m[1] != "" {
-					lt = strings.TrimSpace(m[1])
-				} else if m[2] != "" {
-					lt = strings.TrimSpace(m[2])
-				}
+				lt := linkTarget(m)
 				if lt == "" {
 					continue
 				}

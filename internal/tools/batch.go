@@ -36,8 +36,8 @@ func registerReadMultipleNotes(s *server.MCPServer, deps Deps) {
 
 func readMultipleNotesHandler(deps Deps) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		var paths []string
-		if errResult := parseJSONArg(req, "paths", &paths); errResult != nil {
+		paths, errResult := optStringSlice(req, "paths")
+		if errResult != nil {
 			return errResult, nil
 		}
 
@@ -126,8 +126,8 @@ func registerGetNotesInfo(s *server.MCPServer, deps Deps) {
 
 func getNotesInfoHandler(deps Deps) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		var paths []string
-		if errResult := parseJSONArg(req, "paths", &paths); errResult != nil {
+		paths, errResult := optStringSlice(req, "paths")
+		if errResult != nil {
 			return errResult, nil
 		}
 

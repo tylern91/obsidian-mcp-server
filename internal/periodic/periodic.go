@@ -3,6 +3,7 @@ package periodic
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -45,12 +46,13 @@ func New(vaultRoot string) *Service {
 	}
 }
 
-// WithClock returns a new Service with an injectable clock (for tests).
+// WithClock returns a copy of the Service with an injectable clock (for
+// tests). Copying the struct rather than rebuilding it field by field means a
+// field added later carries over automatically instead of silently vanishing.
 func (s *Service) WithClock(fn func() time.Time) *Service {
-	return &Service{
-		vaultRoot: s.vaultRoot,
-		clock:     fn,
-	}
+	clone := *s
+	clone.clock = fn
+	return &clone
 }
 
 // LoadConfig reads .obsidian/plugins/periodic-notes/data.json.
@@ -59,20 +61,16 @@ func (s *Service) WithClock(fn func() time.Time) *Service {
 func (s *Service) LoadConfig() (Config, error) {
 	if s.configCache != nil {
 		// Return a shallow copy so callers cannot mutate the cache.
-		out := make(Config, len(*s.configCache))
-		mergeStringMap(out, *s.configCache)
-		return out, nil
+		return maps.Clone(*s.configCache), nil
 	}
 
 	configPath := filepath.Join(s.vaultRoot, ".obsidian", "plugins", "periodic-notes", "data.json")
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			// Return a copy of the defaults and cache them.
-			out := make(Config, len(defaultConfig))
-			mergeStringMap(out, defaultConfig)
-			s.configCache = &out
-			return out, nil
+			cached := maps.Clone(defaultConfig)
+			s.configCache = &cached
+			return maps.Clone(cached), nil
 		}
 		return nil, fmt.Errorf("periodic: read config: %w", err)
 	}
@@ -83,21 +81,13 @@ func (s *Service) LoadConfig() (Config, error) {
 	}
 	s.configCache = &cfg
 	// Return a copy so callers cannot mutate the cache.
-	out := make(Config, len(cfg))
-	mergeStringMap(out, cfg)
-	return out, nil
-}
-
-// mergeStringMap copies all entries from src into dst.
-func mergeStringMap(dst, src Config) {
-	for k, v := range src {
-		dst[k] = v
-	}
+	return maps.Clone(cfg), nil
 }
 
 // formatMoment converts a moment.js format string and a time.Time into the
-// formatted filename stem. It walks the format token by token as a state machine.
-func formatMoment(format string, t time.Time) (string, error) {
+// formatted filename stem. It walks the format token by token as a state
+// machine and cannot fail: unrecognized tokens pass through as literals.
+func formatMoment(format string, t time.Time) string {
 	isoYear, isoWeek := t.ISOWeek()
 	quarter := (int(t.Month())-1)/3 + 1
 
@@ -166,25 +156,34 @@ func formatMoment(format string, t time.Time) (string, error) {
 		}
 	}
 
-	return sb.String(), nil
+	return sb.String()
+}
+
+// granularityOffset maps each supported granularity name to the function
+// that applies an offset in its natural unit. It is the single source of
+// truth for which granularity names are valid; defaultConfig's keys must
+// match this map's keys exactly (checked by TestGranularityNamesMatchDefaultConfig).
+var granularityOffset = map[string]func(t time.Time, offset int) time.Time{
+	"daily":     func(t time.Time, offset int) time.Time { return t.AddDate(0, 0, offset) },
+	"weekly":    func(t time.Time, offset int) time.Time { return t.AddDate(0, 0, offset*7) },
+	"monthly":   func(t time.Time, offset int) time.Time { return t.AddDate(0, offset, 0) },
+	"quarterly": func(t time.Time, offset int) time.Time { return t.AddDate(0, offset*3, 0) },
+	"yearly":    func(t time.Time, offset int) time.Time { return t.AddDate(offset, 0, 0) },
+}
+
+// isValidGranularity reports whether granularity is one of the supported names.
+func isValidGranularity(granularity string) bool {
+	_, ok := granularityOffset[granularity]
+	return ok
 }
 
 // applyOffset applies an offset in the granularity's natural unit to t.
 func applyOffset(granularity string, t time.Time, offset int) (time.Time, error) {
-	switch granularity {
-	case "daily":
-		return t.AddDate(0, 0, offset), nil
-	case "weekly":
-		return t.AddDate(0, 0, offset*7), nil
-	case "monthly":
-		return t.AddDate(0, offset, 0), nil
-	case "quarterly":
-		return t.AddDate(0, offset*3, 0), nil
-	case "yearly":
-		return t.AddDate(offset, 0, 0), nil
-	default:
+	fn, ok := granularityOffset[granularity]
+	if !ok {
 		return t, fmt.Errorf("periodic: unknown granularity %q", granularity)
 	}
+	return fn(t, offset), nil
 }
 
 // Resolve computes the vault-relative path for a periodic note.
@@ -211,10 +210,7 @@ func (s *Service) Resolve(granularity string, offset int) (string, error) {
 		return "", err
 	}
 
-	stem, err := formatMoment(gc.Format, t)
-	if err != nil {
-		return "", err
-	}
+	stem := formatMoment(gc.Format, t)
 
 	return path.Join(gc.Folder, stem+".md"), nil
 }
@@ -224,7 +220,7 @@ func (s *Service) RecentDates(granularity string, count int) ([]time.Time, error
 	if count < 0 {
 		return nil, fmt.Errorf("periodic: count must be non-negative, got %d", count)
 	}
-	if _, err := applyOffset(granularity, time.Time{}, 0); err != nil {
+	if !isValidGranularity(granularity) {
 		return nil, fmt.Errorf("periodic: unknown granularity %q", granularity)
 	}
 

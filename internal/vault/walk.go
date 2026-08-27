@@ -44,7 +44,7 @@ func (s *Service) WalkNotes(ctx context.Context, fn func(rel, abs string) error)
 			if s.filter.IsIgnored(rel) {
 				return nil
 			}
-			if !s.filter.IsAllowedExtension(filepath.Ext(path)) {
+			if !s.filter.IsAllowedExtension(path) {
 				return nil
 			}
 		}

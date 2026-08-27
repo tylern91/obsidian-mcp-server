@@ -80,18 +80,14 @@ func updateFrontmatterHandler(deps Deps) server.ToolHandlerFunc {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		var updates map[string]any
-		if req.GetString("updates", "") != "" {
-			if errResult := parseJSONArg(req, "updates", &updates); errResult != nil {
-				return errResult, nil
-			}
+		updates, errResult := optStringMap(req, "updates")
+		if errResult != nil {
+			return errResult, nil
 		}
 
-		var removeKeys []string
-		if req.GetString("removeKeys", "") != "" {
-			if errResult := parseJSONArg(req, "removeKeys", &removeKeys); errResult != nil {
-				return errResult, nil
-			}
+		removeKeys, errResult := optStringSlice(req, "removeKeys")
+		if errResult != nil {
+			return errResult, nil
 		}
 
 		if err := deps.Vault.UpdateFrontmatter(ctx, path, updates, removeKeys); err != nil {

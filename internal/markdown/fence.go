@@ -34,7 +34,7 @@ func StripCodeFences(content string) string {
 
 		if inFence {
 			// Look for the closing fence: same fence character, at least fenceLength chars.
-			if isFenceCloser(trimmed, fenceChar, fenceLength) {
+			if IsFenceCloser(trimmed, fenceChar, fenceLength) {
 				inFence = false
 			}
 			// Replace the entire line (opening, body, closing) with a space.
@@ -43,7 +43,7 @@ func StripCodeFences(content string) string {
 		}
 
 		// Check for opening fence at column 0.
-		if ch, n, ok := fenceOpener(trimmed); ok {
+		if ch, n, ok := FenceOpener(trimmed); ok {
 			inFence = true
 			fenceChar = ch
 			fenceLength = n
@@ -58,10 +58,10 @@ func StripCodeFences(content string) string {
 	return out.String()
 }
 
-// fenceOpener reports whether line starts a fenced code block.
+// FenceOpener reports whether line starts a fenced code block.
 // It returns the fence character ('`' or '~'), the run length, and true on match.
 // The fence must be at column 0 and consist of 3 or more identical characters.
-func fenceOpener(line string) (byte, int, bool) {
+func FenceOpener(line string) (byte, int, bool) {
 	for _, ch := range []byte{'`', '~'} {
 		if len(line) >= 3 && line[0] == ch && line[1] == ch && line[2] == ch {
 			// Count the full run of the fence character.
@@ -78,10 +78,10 @@ func fenceOpener(line string) (byte, int, bool) {
 	return 0, 0, false
 }
 
-// isFenceCloser reports whether line closes an open fence started with fenceChar
+// IsFenceCloser reports whether line closes an open fence started with fenceChar
 // and the original run length fenceLen. A closer requires at least fenceLen
 // consecutive fenceChar characters, optionally followed by spaces only.
-func isFenceCloser(line string, fenceChar byte, fenceLen int) bool {
+func IsFenceCloser(line string, fenceChar byte, fenceLen int) bool {
 	if len(line) < fenceLen {
 		return false
 	}
