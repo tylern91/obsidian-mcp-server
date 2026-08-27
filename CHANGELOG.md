@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+**Minimum requirements**
+- Go build/toolchain floor raised `1.23` → `1.27.0`. Building from source with `GOTOOLCHAIN=local`
+  now requires Go 1.27+; `GOTOOLCHAIN=auto` (the Go 1.21+ default) upgrades automatically.
+- `github.com/mark3labs/mcp-go` `v0.32.0` → `v0.58.0`
+- `github.com/pkoukk/tiktoken-go` `v0.1.7` → `v0.1.8`
+- `github.com/stretchr/testify` `v1.9.0` → `v1.12.1` (test-only)
+- Added explicit `golang.org/x/text v0.41.0` requirement, overriding a vulnerable transitive
+  version pulled in by `mcp-go` (GO-2026-5970, affected range `[0, 0.39.0)`)
+
 ---
 
 ## [0.1.0] - 2026-06-22
