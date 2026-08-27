@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/tylern91/obsidian-mcp-server/security/advisories/new
+    about: Please use private vulnerability reporting instead of a public issue — see SECURITY.md.
+  - name: Ask a question / discuss an idea
+    url: https://github.com/tylern91/obsidian-mcp-server/discussions
+    about: For open-ended questions that aren't a bug report or a concrete feature request.

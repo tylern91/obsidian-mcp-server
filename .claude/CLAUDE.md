@@ -45,13 +45,14 @@ go test -race ./internal/vault/ -run TestSanitizePath -v
 - **Stdout is reserved for JSON-RPC.** Never `fmt.Println` from server code. Logs go to stderr via slog JSON handler (`main.go`).
 - **Tool errors return `mcp.NewToolResultError(...)`**, never Go errors (Go errors surface as protocol errors).
 - **Path security**: `sanitizePath` is purely lexical (no syscalls) and may run *outside* `s.mu.Lock()`; `checkSymlinksForWrite` and the write syscall itself must both run *inside* the lock — that ordering, not `sanitizePath`'s position, is the TOCTOU defense (against races within this process; a local attacker with vault write access can still race the check against an external write — see `checkSymlinksForWrite`'s doc comment and `SECURITY.md`). When adding a new write op, follow this exact ordering. Read paths use case-insensitive fallback resolution (`ResolvePath` → `existenceCheck`); write paths use `existsStrict` — never mix the two, since a case-insensitive fallback on a write target would resolve ambiguously.
+- **D-4 (locked, 2026-08-27): read/write path resolution asymmetry is deliberate, not an inconsistency.** Reads resolve case-insensitively (`ResolvePath` → `existenceCheck`, returning `ErrAmbiguousPath` on a case collision) because a read only needs to find *a* matching file. Writes use `existsStrict` and never fall back case-insensitively, because a write needs certainty about exactly which file is being mutated — a case-insensitive match on a write target could silently overwrite the wrong one of two similarly-named files. Do not "fix" this into symmetry; it is the correct behavior for each operation's risk profile. No `CHANGELOG.md` entry — nothing observable changes.
 - **Frontmatter writes preserve key order** via yaml.v3 Node API in `internal/vault/frontmatter.go` (`UpdateFrontmatter` walks `MappingNode.Content`). Naive `yaml.Marshal` round-trip will reorder keys and corrupt user files — don't.
 - **Test fixture is load-bearing**: `testdata/vault/` tag counts, link graphs, and `.obsidian/plugins/periodic-notes/data.json` back assertions in search/audit/periodic tests. Use `t.TempDir()` and copy fixtures rather than mutate.
 - **Error sentinel**: `config.ErrVersionRequested` is control flow for `--version`, not a real error — `main.go` checks for it before logging.
 
 ## Operational notes
 
-- **No CI.** `.github/` does not exist. `make lint` locally is the only gate.
+- **CI**: `.github/workflows/go.yml` runs `make lint`, `make test`, `make build`, and `govulncheck ./...` on every PR. `.github/workflows/release.yml` handles tag-triggered releases. `make lint` locally reproduces the same gate before pushing.
 - **Releases**: bump `internal/version/version.go`, tag SemVer (`vX.Y.Z`), update `CHANGELOG.md`. No goreleaser, no Dockerfile.
 - **MCP integration** (Claude Code): `claude mcp add obsidian -s user -e OBSIDIAN_VAULT_PATH=/path/to/vault -- obsidian-mcp`. Claude Desktop snippet: see `README.md` § Installation.
 - **`--log-level debug`** (or `OBSIDIAN_LOG_LEVEL=debug`) for verbose JSON logs to stderr. Default is `warn`.
