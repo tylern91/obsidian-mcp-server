@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/tylern91/obsidian-mcp-server/internal/search"
 	"github.com/tylern91/obsidian-mcp-server/internal/vault"
@@ -61,26 +62,55 @@ type Deps struct {
 	MaxResults  int  // maximum number of search results
 }
 
+// toolSpec bundles an MCP tool definition with its handler and whether it
+// mutates the vault. Mutating is derived from the tool's own ReadOnlyHint so
+// it cannot drift from the annotation the client sees.
+type toolSpec struct {
+	Tool     mcp.Tool
+	Handler  server.ToolHandlerFunc
+	Mutating bool
+}
+
+// newToolSpec derives Mutating from tool's ReadOnlyHint annotation. A tool
+// with no annotation is treated as mutating (fail safe).
+func newToolSpec(tool mcp.Tool, handler server.ToolHandlerFunc) toolSpec {
+	mutating := true
+	if tool.Annotations.ReadOnlyHint != nil {
+		mutating = !*tool.Annotations.ReadOnlyHint
+	}
+	return toolSpec{Tool: tool, Handler: handler, Mutating: mutating}
+}
+
+// allSpecs builds the full set of tool specs. Exported via export_test.go for
+// coverage of registration wiring itself.
+func allSpecs(deps Deps) []toolSpec {
+	return []toolSpec{
+		readNoteSpec(deps),
+		writeNoteSpec(deps),
+		listDirectorySpec(deps),
+		getFrontmatterSpec(deps),
+		updateFrontmatterSpec(deps),
+		manageTagsSpec(deps),
+		listAllTagsSpec(deps),
+		getBacklinksSpec(deps),
+		patchNoteSpec(deps),
+		deleteNoteSpec(deps),
+		moveNoteSpec(deps),
+		searchNotesSpec(deps),
+		searchRegexSpec(deps),
+		readMultipleNotesSpec(deps),
+		getNotesInfoSpec(deps),
+		getVaultStatsSpec(deps),
+		getRecentChangesSpec(deps),
+		getPeriodicNoteSpec(deps),
+		getRecentPeriodicNotesSpec(deps),
+		auditNotesSpec(deps),
+	}
+}
+
 // RegisterAll registers all MCP tools with the server.
 func RegisterAll(s *server.MCPServer, deps Deps) {
-	registerReadNote(s, deps)
-	registerWriteNote(s, deps)
-	registerListDirectory(s, deps)
-	registerGetFrontmatter(s, deps)
-	registerUpdateFrontmatter(s, deps)
-	registerManageTags(s, deps)
-	registerListAllTags(s, deps)
-	registerGetBacklinks(s, deps)
-	registerPatchNote(s, deps)
-	registerDeleteNote(s, deps)
-	registerMoveNote(s, deps)
-	registerSearchNotes(s, deps)
-	registerSearchRegex(s, deps)
-	registerReadMultipleNotes(s, deps)
-	registerGetNotesInfo(s, deps)
-	registerGetVaultStats(s, deps)
-	registerGetRecentChanges(s, deps)
-	registerGetPeriodicNote(s, deps)
-	registerGetRecentPeriodicNotes(s, deps)
-	registerAuditNotes(s, deps)
+	for _, spec := range allSpecs(deps) {
+		s.AddTool(spec.Tool, spec.Handler)
+	}
 }

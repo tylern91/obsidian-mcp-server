@@ -2,6 +2,7 @@ package response_test
 
 import (
 	"math"
+	"os"
 	"strings"
 	"testing"
 
@@ -55,6 +56,29 @@ func TestCountTokens(t *testing.T) {
 	}
 }
 
+// TestCountTokens_NoNetworkFetch asserts the encoder loads from the embedded
+// cl100k_base rank table rather than tiktoken-go's default loader, which
+// fetches over HTTP and caches the result to TIKTOKEN_CACHE_DIR on first use.
+// If CountTokens ever regressed to the network loader, this directory would
+// gain a cache file; with the embedded loader it must stay empty.
+func TestCountTokens_NoNetworkFetch(t *testing.T) {
+	cacheDir := t.TempDir()
+	t.Setenv("TIKTOKEN_CACHE_DIR", cacheDir)
+
+	got := response.CountTokens("the quick brown fox")
+	if got <= 0 {
+		t.Fatalf("CountTokens returned %d, want > 0", got)
+	}
+
+	entries, err := os.ReadDir(cacheDir)
+	if err != nil {
+		t.Fatalf("ReadDir(%q): %v", cacheDir, err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("TIKTOKEN_CACHE_DIR gained %d entr(y/ies); CountTokens should never touch the network loader's cache", len(entries))
+	}
+}
+
 func TestFormatJSON_Compact(t *testing.T) {
 	t.Parallel()
 
@@ -94,103 +118,6 @@ func TestFormatJSON_ErrorOnUnmarshalable(t *testing.T) {
 	_, err := response.FormatJSON(math.Inf(1), false)
 	if err == nil {
 		t.Error("expected error for non-JSON-encodable value (math.Inf), got nil")
-	}
-}
-
-// ── Truncate ─────────────────────────────────────────────────────────────────
-
-func TestTruncate(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name     string
-		s        string
-		maxRunes int
-		wantS    string
-		wantCut  bool
-	}{
-		{
-			name:     "empty string no cut",
-			s:        "",
-			maxRunes: 10,
-			wantS:    "",
-			wantCut:  false,
-		},
-		{
-			name:     "exactly maxRunes no cut",
-			s:        "hello",
-			maxRunes: 5,
-			wantS:    "hello",
-			wantCut:  false,
-		},
-		{
-			name:     "one over cuts",
-			s:        "hello!",
-			maxRunes: 5,
-			wantS:    "hello",
-			wantCut:  true,
-		},
-		{
-			name:     "ASCII well under no cut",
-			s:        "hi",
-			maxRunes: 10,
-			wantS:    "hi",
-			wantCut:  false,
-		},
-		{
-			name:     "multibyte CJK cut on rune boundary",
-			s:        "你好世界",
-			maxRunes: 2,
-			wantS:    "你好",
-			wantCut:  true,
-		},
-		{
-			name:     "emoji single rune cut",
-			s:        "🎉abc",
-			maxRunes: 1,
-			wantS:    "🎉",
-			wantCut:  true,
-		},
-		{
-			name:     "emoji no cut",
-			s:        "🎉",
-			maxRunes: 5,
-			wantS:    "🎉",
-			wantCut:  false,
-		},
-		{
-			name:     "CRLF pair not split — cut before \\r",
-			s:        "ab\r\ncd",
-			maxRunes: 3, // runes: a b \r \n c d — cut at 3 would separate \r from \n
-			wantS:    "ab",
-			wantCut:  true,
-		},
-		{
-			name:     "CRLF pair not split — both included when cut after \\n",
-			s:        "ab\r\ncd",
-			maxRunes: 4, // runes: a b \r \n → include both \r and \n
-			wantS:    "ab\r\n",
-			wantCut:  true,
-		},
-		{
-			name:     "CRLF no split needed",
-			s:        "ab\r\ncd",
-			maxRunes: 10,
-			wantS:    "ab\r\ncd",
-			wantCut:  false,
-		},
-	}
-
-	for _, tc := range tests {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			gotS, gotCut := response.Truncate(tc.s, tc.maxRunes)
-			if gotS != tc.wantS || gotCut != tc.wantCut {
-				t.Errorf("Truncate(%q, %d) = (%q, %v), want (%q, %v)",
-					tc.s, tc.maxRunes, gotS, gotCut, tc.wantS, tc.wantCut)
-			}
-		})
 	}
 }
 

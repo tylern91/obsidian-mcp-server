@@ -31,6 +31,10 @@ type RegexOptions struct {
 	// Limit caps the total number of results returned. 0 uses the default (20).
 	Limit int
 
+	// MaxResults, when > 0, is an upper ceiling applied to the effective
+	// limit regardless of Limit or the default. 0 means uncapped.
+	MaxResults int
+
 	// MaxMatchesPerFile caps the number of matching lines collected per file.
 	// 0 uses the default (5).
 	MaxMatchesPerFile int
@@ -104,6 +108,9 @@ func (s *Service) SearchRegex(ctx context.Context, opts RegexOptions) ([]RegexRe
 	limit := opts.Limit
 	if limit <= 0 {
 		limit = defaultRegexLimit
+	}
+	if opts.MaxResults > 0 && limit > opts.MaxResults {
+		limit = opts.MaxResults
 	}
 	maxPerFile := opts.MaxMatchesPerFile
 	if maxPerFile <= 0 {

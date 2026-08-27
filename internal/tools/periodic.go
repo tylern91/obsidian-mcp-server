@@ -12,7 +12,7 @@ import (
 
 const defaultPeriodicCount = 5
 
-func registerGetPeriodicNote(s *server.MCPServer, deps Deps) {
+func getPeriodicNoteSpec(deps Deps) toolSpec {
 	tool := mcp.NewTool("get_periodic_note",
 		mcp.WithDescription("Get a periodic note (daily, weekly, monthly, quarterly, or yearly)"),
 		mcp.WithString("granularity",
@@ -27,10 +27,13 @@ func registerGetPeriodicNote(s *server.MCPServer, deps Deps) {
 		mcp.WithBoolean("createIfMissing",
 			mcp.Description("Create the note if it does not exist (default: false)"),
 		),
+		mcp.WithBoolean("prettyPrint",
+			mcp.Description("Format the JSON response with indentation (default: false)"),
+		),
 		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(false),
 	)
-	s.AddTool(tool, getPeriodicNoteHandler(deps))
+	return newToolSpec(tool, getPeriodicNoteHandler(deps))
 }
 
 func getPeriodicNoteHandler(deps Deps) server.ToolHandlerFunc {
@@ -63,11 +66,7 @@ func getPeriodicNoteHandler(deps Deps) server.ToolHandlerFunc {
 					Exists bool   `json:"exists"`
 					Path   string `json:"path"`
 				}
-				result, jsonErr := response.FormatJSON(notFoundResponse{Exists: false, Path: resolvedPath}, deps.PrettyPrint)
-				if jsonErr != nil {
-					return mcp.NewToolResultError(jsonErr.Error()), nil
-				}
-				return mcp.NewToolResultText(result), nil
+				return response.ToolResult(req, deps.PrettyPrint, notFoundResponse{Exists: false, Path: resolvedPath})
 			}
 		}
 
@@ -89,15 +88,11 @@ func getPeriodicNoteHandler(deps Deps) server.ToolHandlerFunc {
 			TokenCount: response.CountTokens(note.Content),
 		}
 
-		result, err := response.FormatJSON(resp, deps.PrettyPrint)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(result), nil
+		return response.ToolResult(req, deps.PrettyPrint, resp)
 	}
 }
 
-func registerGetRecentPeriodicNotes(s *server.MCPServer, deps Deps) {
+func getRecentPeriodicNotesSpec(deps Deps) toolSpec {
 	tool := mcp.NewTool("get_recent_periodic_notes",
 		mcp.WithDescription("Get the N most recent periodic notes"),
 		mcp.WithString("granularity",
@@ -112,10 +107,13 @@ func registerGetRecentPeriodicNotes(s *server.MCPServer, deps Deps) {
 		mcp.WithBoolean("summary",
 			mcp.Description("When true, return headOf (200 chars) instead of full content (default: true)"),
 		),
+		mcp.WithBoolean("prettyPrint",
+			mcp.Description("Format the JSON response with indentation (default: false)"),
+		),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
 	)
-	s.AddTool(tool, getRecentPeriodicNotesHandler(deps))
+	return newToolSpec(tool, getRecentPeriodicNotesHandler(deps))
 }
 
 func getRecentPeriodicNotesHandler(deps Deps) server.ToolHandlerFunc {
@@ -125,18 +123,7 @@ func getRecentPeriodicNotesHandler(deps Deps) server.ToolHandlerFunc {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		count := req.GetInt("count", defaultPeriodicCount)
-		if count <= 0 {
-			count = defaultPeriodicCount
-		}
-
-		maxResults := deps.MaxResults
-		if maxResults <= 0 {
-			maxResults = 20
-		}
-		if count > maxResults {
-			count = maxResults
-		}
+		count := effectiveLimit(req.GetInt("count", defaultPeriodicCount), defaultPeriodicCount, deps.MaxResults)
 
 		// summary defaults to true when not provided
 		summary := req.GetBool("summary", true)
@@ -200,13 +187,9 @@ func getRecentPeriodicNotesHandler(deps Deps) server.ToolHandlerFunc {
 			Count int         `json:"count"`
 		}
 
-		result, err := response.FormatJSON(recentResponse{
+		return response.ToolResult(req, deps.PrettyPrint, recentResponse{
 			Notes: notes,
 			Count: len(notes),
-		}, deps.PrettyPrint)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(result), nil
+		})
 	}
 }

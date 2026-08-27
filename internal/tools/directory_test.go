@@ -172,6 +172,27 @@ func TestListDirectoryHandler_LimitZeroUsesDefault(t *testing.T) {
 	}
 }
 
+func TestListDirectoryHandler_MaxResultsCapsExplicitLimit(t *testing.T) {
+	deps := testDeps(t)
+	deps.MaxResults = 1
+	handler := tools.ListDirectoryHandler(deps)
+
+	// An explicit limit above MaxResults must still be capped — MaxResults is
+	// a ceiling, not merely a fallback default.
+	result, err := handler(context.Background(), makeRequestKV("path", "Notes", "limit", 200))
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	resp := parseDirResp(t, result)
+
+	if len(resp.Entries) != 1 {
+		t.Errorf("expected 1 entry when MaxResults=1 caps limit=200, got %d", len(resp.Entries))
+	}
+	if !resp.Truncated {
+		t.Error("expected Truncated=true when MaxResults caps the requested limit")
+	}
+}
+
 func TestListDirectoryHandler_SortedOutput(t *testing.T) {
 	deps := testDeps(t)
 	handler := tools.ListDirectoryHandler(deps)

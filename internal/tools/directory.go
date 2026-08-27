@@ -14,7 +14,7 @@ import (
 // defaultMaxDirEntries caps listing output when no explicit limit is set.
 const defaultMaxDirEntries = 50
 
-func registerListDirectory(s *server.MCPServer, deps Deps) {
+func listDirectorySpec(deps Deps) toolSpec {
 	tool := mcp.NewTool("list_directory",
 		mcp.WithDescription("List files and directories in the vault. "+
 			"Supports glob filtering, file/dir type filtering, limit+offset pagination, "+
@@ -47,26 +47,19 @@ func registerListDirectory(s *server.MCPServer, deps Deps) {
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
 	)
-	s.AddTool(tool, listDirectoryHandler(deps))
+	return newToolSpec(tool, listDirectoryHandler(deps))
 }
 
 func listDirectoryHandler(deps Deps) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path       := req.GetString("path", "")
-		filter     := req.GetString("filter", "")
+		path := req.GetString("path", "")
+		filter := req.GetString("filter", "")
 		typeFilter := req.GetString("type", "all")
-		limit      := req.GetInt("limit", 0)
-		offset     := req.GetInt("offset", 0)
-		concise    := req.GetBool("concise", true)
-		prettyPrint := req.GetBool("prettyPrint", deps.PrettyPrint)
+		limit := req.GetInt("limit", 0)
+		offset := req.GetInt("offset", 0)
+		concise := req.GetBool("concise", true)
 
-		// Resolve effective limit: caller → deps.MaxResults → hard default.
-		if limit <= 0 {
-			limit = deps.MaxResults
-		}
-		if limit <= 0 {
-			limit = defaultMaxDirEntries
-		}
+		limit = effectiveLimit(limit, defaultMaxDirEntries, deps.MaxResults)
 		if offset < 0 {
 			offset = 0
 		}
@@ -174,10 +167,6 @@ func listDirectoryHandler(deps Deps) server.ToolHandlerFunc {
 			Truncated: truncated,
 		}
 
-		result, err := response.FormatJSON(resp, prettyPrint)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(result), nil
+		return response.ToolResult(req, deps.PrettyPrint, resp)
 	}
 }

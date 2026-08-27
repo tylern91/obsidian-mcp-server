@@ -9,7 +9,7 @@ import (
 	"github.com/tylern91/obsidian-mcp-server/internal/vault"
 )
 
-func registerPatchNote(s *server.MCPServer, deps Deps) {
+func patchNoteSpec(deps Deps) toolSpec {
 	tool := mcp.NewTool("patch_note",
 		mcp.WithDescription("Apply a heading-anchored patch to a note. Insert content before or after a heading, or replace the heading's body."),
 		mcp.WithString("path",
@@ -29,10 +29,13 @@ func registerPatchNote(s *server.MCPServer, deps Deps) {
 			mcp.Required(),
 			mcp.Description("Content to insert or use as the replacement body"),
 		),
+		mcp.WithBoolean("prettyPrint",
+			mcp.Description("Format the JSON response with indentation (default: false)"),
+		),
 		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(true),
 	)
-	s.AddTool(tool, patchNoteHandler(deps))
+	return newToolSpec(tool, patchNoteHandler(deps))
 }
 
 func patchNoteHandler(deps Deps) server.ToolHandlerFunc {
@@ -68,20 +71,16 @@ func patchNoteHandler(deps Deps) server.ToolHandlerFunc {
 			Heading  string `json:"heading"`
 			Position string `json:"position"`
 		}
-		result, err := response.FormatJSON(patchResponse{
+		return response.ToolResult(req, deps.PrettyPrint, patchResponse{
 			Success:  true,
 			Path:     path,
 			Heading:  heading,
 			Position: position,
-		}, deps.PrettyPrint)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(result), nil
+		})
 	}
 }
 
-func registerDeleteNote(s *server.MCPServer, deps Deps) {
+func deleteNoteSpec(deps Deps) toolSpec {
 	tool := mcp.NewTool("delete_note",
 		mcp.WithDescription("Permanently delete a note from the vault. Requires confirm to match path exactly as a safety guard."),
 		mcp.WithString("path",
@@ -92,10 +91,13 @@ func registerDeleteNote(s *server.MCPServer, deps Deps) {
 			mcp.Required(),
 			mcp.Description("Must match path exactly to confirm the deletion"),
 		),
+		mcp.WithBoolean("prettyPrint",
+			mcp.Description("Format the JSON response with indentation (default: false)"),
+		),
 		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(true),
 	)
-	s.AddTool(tool, deleteNoteHandler(deps))
+	return newToolSpec(tool, deleteNoteHandler(deps))
 }
 
 func deleteNoteHandler(deps Deps) server.ToolHandlerFunc {
@@ -117,15 +119,11 @@ func deleteNoteHandler(deps Deps) server.ToolHandlerFunc {
 			Success bool   `json:"success"`
 			Path    string `json:"path"`
 		}
-		result, err := response.FormatJSON(deleteResponse{Success: true, Path: path}, deps.PrettyPrint)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(result), nil
+		return response.ToolResult(req, deps.PrettyPrint, deleteResponse{Success: true, Path: path})
 	}
 }
 
-func registerMoveNote(s *server.MCPServer, deps Deps) {
+func moveNoteSpec(deps Deps) toolSpec {
 	tool := mcp.NewTool("move_note",
 		mcp.WithDescription("Move or rename a note within the vault. Creates intermediate directories as needed. Requires confirm to match src exactly. Note: confirm guards the source path only; verify dst carefully before submitting."),
 		mcp.WithString("src",
@@ -140,10 +138,13 @@ func registerMoveNote(s *server.MCPServer, deps Deps) {
 			mcp.Required(),
 			mcp.Description("Must match src exactly to confirm the move"),
 		),
+		mcp.WithBoolean("prettyPrint",
+			mcp.Description("Format the JSON response with indentation (default: false)"),
+		),
 		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(true),
 	)
-	s.AddTool(tool, moveNoteHandler(deps))
+	return newToolSpec(tool, moveNoteHandler(deps))
 }
 
 func moveNoteHandler(deps Deps) server.ToolHandlerFunc {
@@ -170,10 +171,6 @@ func moveNoteHandler(deps Deps) server.ToolHandlerFunc {
 			Src     string `json:"src"`
 			Dst     string `json:"dst"`
 		}
-		result, err := response.FormatJSON(moveResponse{Success: true, Src: src, Dst: dst}, deps.PrettyPrint)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(result), nil
+		return response.ToolResult(req, deps.PrettyPrint, moveResponse{Success: true, Src: src, Dst: dst})
 	}
 }

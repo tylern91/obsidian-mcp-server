@@ -9,7 +9,7 @@ import (
 	"github.com/tylern91/obsidian-mcp-server/internal/vault"
 )
 
-func registerManageTags(s *server.MCPServer, deps Deps) {
+func manageTagsSpec(deps Deps) toolSpec {
 	tool := mcp.NewTool("manage_tags",
 		mcp.WithDescription("Add or remove a tag on a note. Use location to control where new tags are placed."),
 		mcp.WithString("path",
@@ -30,10 +30,13 @@ func registerManageTags(s *server.MCPServer, deps Deps) {
 			mcp.Enum("frontmatter", "inline"),
 			mcp.DefaultString("frontmatter"),
 		),
+		mcp.WithBoolean("prettyPrint",
+			mcp.Description("Format the JSON response with indentation (default: false)"),
+		),
 		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(true),
 	)
-	s.AddTool(tool, manageTagsHandler(deps))
+	return newToolSpec(tool, manageTagsHandler(deps))
 }
 
 func manageTagsHandler(deps Deps) server.ToolHandlerFunc {
@@ -76,15 +79,11 @@ func manageTagsHandler(deps Deps) server.ToolHandlerFunc {
 		if action == "add" {
 			resp.Location = location
 		}
-		result, err := response.FormatJSON(resp, deps.PrettyPrint)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(result), nil
+		return response.ToolResult(req, deps.PrettyPrint, resp)
 	}
 }
 
-func registerListAllTags(s *server.MCPServer, deps Deps) {
+func listAllTagsSpec(deps Deps) toolSpec {
 	tool := mcp.NewTool("list_all_tags",
 		mcp.WithDescription("Aggregate all tags across the entire vault with usage counts."),
 		mcp.WithBoolean("prettyPrint",
@@ -93,13 +92,11 @@ func registerListAllTags(s *server.MCPServer, deps Deps) {
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
 	)
-	s.AddTool(tool, listAllTagsHandler(deps))
+	return newToolSpec(tool, listAllTagsHandler(deps))
 }
 
 func listAllTagsHandler(deps Deps) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		prettyPrint := req.GetBool("prettyPrint", deps.PrettyPrint)
-
 		tagCounts, err := deps.Vault.AggregateTags(ctx)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
@@ -111,10 +108,6 @@ func listAllTagsHandler(deps Deps) server.ToolHandlerFunc {
 			Tags  []vault.TagCount `json:"tags"`
 			Total int              `json:"total"`
 		}
-		result, err := response.FormatJSON(allTagsResponse{Tags: top, Total: len(top)}, prettyPrint)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(result), nil
+		return response.ToolResult(req, deps.PrettyPrint, allTagsResponse{Tags: top, Total: len(top)})
 	}
 }

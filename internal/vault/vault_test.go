@@ -78,6 +78,36 @@ func TestService_ResolvePath(t *testing.T) {
 			inputPath: "Notes/nonexistent.md",
 			wantErr:   vault.ErrNotFound,
 		},
+		{
+			name:      "windows drive-relative path",
+			inputPath: "C:Notes/simple.md",
+			wantErr:   vault.ErrPathTraversal,
+		},
+		{
+			name:      "windows alternate data stream",
+			inputPath: "Notes/simple.md:hidden",
+			wantErr:   vault.ErrPathTraversal,
+		},
+		{
+			name:      "windows reserved device name",
+			inputPath: "NUL.md",
+			wantErr:   vault.ErrPathTraversal,
+		},
+		{
+			name:      "windows reserved device name with subdir",
+			inputPath: "Notes/CON.md",
+			wantErr:   vault.ErrPathTraversal,
+		},
+		{
+			name:      "windows trailing dot",
+			inputPath: "Notes/simple.md.",
+			wantErr:   vault.ErrPathTraversal,
+		},
+		{
+			name:      "windows trailing space",
+			inputPath: "Notes/simple.md ",
+			wantErr:   vault.ErrPathTraversal,
+		},
 	}
 
 	for _, tc := range tests {

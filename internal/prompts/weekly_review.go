@@ -3,6 +3,7 @@ package prompts
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 
@@ -30,30 +31,37 @@ func weeklyReviewHandler(deps Deps) server.PromptHandlerFunc {
 			}
 			weekOffset = n
 		}
+		if weekOffset > 0 {
+			return errorPrompt(fmt.Sprintf("invalid weekOffset %d: must be 0 (this week) or negative (weeks ago)", weekOffset)), nil
+		}
 
-		// Collect the 7 daily note dates for the target week.
-		// RecentDates(daily, 7) returns last 7 days from today; apply weekOffset shift.
-		dates, err := deps.Periodic.RecentDates("daily", 7+weekOffset*-7)
+		// shiftDays is how many days back the target week's most recent day sits
+		// relative to today; it's always >= 0 since weekOffset <= 0.
+		shiftDays := -weekOffset * 7
+
+		// RecentDates returns shiftDays+7 dates ending at today, descending
+		// (dates[0] = today); the target week is the last 7 of those.
+		dates, err := deps.Periodic.RecentDates("daily", shiftDays+7)
 		if err != nil {
 			return errorPrompt(fmt.Sprintf("could not resolve daily dates: %v", err)), nil
 		}
-		// Take only the 7 most relevant dates (shifted window).
-		window := dates
-		if len(window) > 7 {
-			window = window[:7]
-		}
+		window := dates[shiftDays:]
 
 		var sb strings.Builder
 		sb.WriteString("You are producing a weekly retrospective from an Obsidian vault's daily notes.\n\n")
 
 		found := 0
 		for i, d := range window {
-			dayPath, err := deps.Periodic.Resolve("daily", -i)
+			// offset is relative to today and must match the date d being labeled.
+			offset := -(shiftDays + i)
+			dayPath, err := deps.Periodic.Resolve("daily", offset)
 			if err != nil {
+				slog.Warn("weekly_review: resolve daily path failed", "offset", offset, "err", err)
 				continue
 			}
 			note, err := deps.Vault.ReadNote(ctx, dayPath)
 			if err != nil {
+				slog.Warn("weekly_review: read daily note failed", "path", dayPath, "err", err)
 				continue
 			}
 			found++

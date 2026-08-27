@@ -10,7 +10,7 @@ import (
 	"github.com/tylern91/obsidian-mcp-server/internal/vault"
 )
 
-func registerReadNote(s *server.MCPServer, deps Deps) {
+func readNoteSpec(deps Deps) toolSpec {
 	tool := mcp.NewTool("read_note",
 		mcp.WithDescription("Read a note from the vault. Returns content and metadata."),
 		mcp.WithString("path",
@@ -23,7 +23,7 @@ func registerReadNote(s *server.MCPServer, deps Deps) {
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
 	)
-	s.AddTool(tool, readNoteHandler(deps))
+	return newToolSpec(tool, readNoteHandler(deps))
 }
 
 func readNoteHandler(deps Deps) server.ToolHandlerFunc {
@@ -32,7 +32,6 @@ func readNoteHandler(deps Deps) server.ToolHandlerFunc {
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		prettyPrint := req.GetBool("prettyPrint", deps.PrettyPrint)
 
 		note, err := deps.Vault.ReadNote(ctx, path)
 		if err != nil {
@@ -55,15 +54,11 @@ func readNoteHandler(deps Deps) server.ToolHandlerFunc {
 			TokenCount: response.CountTokens(note.Content),
 		}
 
-		result, err := response.FormatJSON(resp, prettyPrint)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(result), nil
+		return response.ToolResult(req, deps.PrettyPrint, resp)
 	}
 }
 
-func registerWriteNote(s *server.MCPServer, deps Deps) {
+func writeNoteSpec(deps Deps) toolSpec {
 	tool := mcp.NewTool("write_note",
 		mcp.WithDescription("Write or update a note in the vault."),
 		mcp.WithString("path",
@@ -79,10 +74,13 @@ func registerWriteNote(s *server.MCPServer, deps Deps) {
 			mcp.Enum("overwrite", "append", "prepend"),
 			mcp.DefaultString("overwrite"),
 		),
+		mcp.WithBoolean("prettyPrint",
+			mcp.Description("Format the JSON response with indentation (default: false)"),
+		),
 		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(true),
 	)
-	s.AddTool(tool, writeNoteHandler(deps))
+	return newToolSpec(tool, writeNoteHandler(deps))
 }
 
 func writeNoteHandler(deps Deps) server.ToolHandlerFunc {
@@ -106,10 +104,6 @@ func writeNoteHandler(deps Deps) server.ToolHandlerFunc {
 			Path    string `json:"path"`
 			Mode    string `json:"mode"`
 		}
-		result, err := response.FormatJSON(writeResponse{Success: true, Path: path, Mode: modeStr}, deps.PrettyPrint)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(result), nil
+		return response.ToolResult(req, deps.PrettyPrint, writeResponse{Success: true, Path: path, Mode: modeStr})
 	}
 }

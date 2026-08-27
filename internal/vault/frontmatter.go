@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -66,7 +67,7 @@ func ParseFrontmatter(raw string) (map[string]any, error) {
 
 	var result map[string]any
 	if err := yaml.Unmarshal([]byte(raw), &result); err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrInvalidFrontmatter, err.Error())
+		return nil, fmt.Errorf("%w: %w", ErrInvalidFrontmatter, err)
 	}
 	if result == nil {
 		return map[string]any{}, nil
@@ -108,26 +109,27 @@ func (s *Service) GetFrontmatter(ctx context.Context, path string) (fm map[strin
 // Returns ErrNotFound when the file does not exist.
 // Returns ErrSymlinkEscape when the path resolves outside the vault boundary.
 func (s *Service) UpdateFrontmatter(ctx context.Context, path string, updates map[string]any, removeKeys []string) error {
+	if err := ctx.Err(); err != nil {
+		return &PathError{Op: "update_frontmatter", Path: path, Err: err}
+	}
+
 	_, absPath, err := s.sanitizePath("update_frontmatter", path)
 	if err != nil {
 		return err
 	}
 
-	if _, statErr := os.Stat(absPath); statErr != nil {
-		if os.IsNotExist(statErr) {
-			return &PathError{Op: "update_frontmatter", Path: path, Err: ErrNotFound}
-		}
-		return &PathError{Op: "update_frontmatter", Path: path, Err: statErr}
-	}
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if err := s.existsStrict("update_frontmatter", path, absPath); err != nil {
+		return err
+	}
 
 	if err := s.checkSymlinksForWrite("update_frontmatter", path, absPath); err != nil {
 		return err
 	}
 
-	data, err := os.ReadFile(absPath)
+	data, _, err := readNoteBytes(absPath)
 	if err != nil {
 		return &PathError{Op: "update_frontmatter", Path: path, Err: err}
 	}
@@ -140,7 +142,7 @@ func (s *Service) UpdateFrontmatter(ctx context.Context, path string, updates ma
 	if hasFM {
 		var doc yaml.Node
 		if unmarshalErr := yaml.Unmarshal([]byte(raw), &doc); unmarshalErr != nil {
-			return fmt.Errorf("%w: %s", ErrInvalidFrontmatter, unmarshalErr.Error())
+			return &PathError{Op: "update_frontmatter", Path: path, Err: fmt.Errorf("%w: %w", ErrInvalidFrontmatter, unmarshalErr)}
 		}
 		if doc.Kind == yaml.DocumentNode && len(doc.Content) > 0 {
 			mapping = doc.Content[0]
@@ -151,10 +153,17 @@ func (s *Service) UpdateFrontmatter(ctx context.Context, path string, updates ma
 		mapping = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
 	}
 
-	for k, v := range updates {
+	updateKeys := make([]string, 0, len(updates))
+	for k := range updates {
+		updateKeys = append(updateKeys, k)
+	}
+	sort.Strings(updateKeys)
+
+	for _, k := range updateKeys {
+		v := updates[k]
 		valNode, encErr := encodeToNode(v)
 		if encErr != nil {
-			return fmt.Errorf("update_frontmatter: encode value for key %q: %w", k, encErr)
+			return &PathError{Op: "update_frontmatter", Path: path, Err: fmt.Errorf("encode value for key %q: %w", k, encErr)}
 		}
 
 		found := false
@@ -183,7 +192,7 @@ func (s *Service) UpdateFrontmatter(ctx context.Context, path string, updates ma
 
 	out, marshalErr := yaml.Marshal(mapping)
 	if marshalErr != nil {
-		return fmt.Errorf("update_frontmatter: marshal: %w", marshalErr)
+		return &PathError{Op: "update_frontmatter", Path: path, Err: fmt.Errorf("marshal: %w", marshalErr)}
 	}
 
 	assembled := "---\n" + string(out) + "---\n" + body

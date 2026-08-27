@@ -8,7 +8,7 @@ import (
 	"github.com/tylern91/obsidian-mcp-server/internal/response"
 )
 
-func registerGetFrontmatter(s *server.MCPServer, deps Deps) {
+func getFrontmatterSpec(deps Deps) toolSpec {
 	tool := mcp.NewTool("get_frontmatter",
 		mcp.WithDescription("Read the YAML frontmatter of a note. Returns key-value pairs and the note body."),
 		mcp.WithString("path",
@@ -21,7 +21,7 @@ func registerGetFrontmatter(s *server.MCPServer, deps Deps) {
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
 	)
-	s.AddTool(tool, getFrontmatterHandler(deps))
+	return newToolSpec(tool, getFrontmatterHandler(deps))
 }
 
 func getFrontmatterHandler(deps Deps) server.ToolHandlerFunc {
@@ -30,7 +30,6 @@ func getFrontmatterHandler(deps Deps) server.ToolHandlerFunc {
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		prettyPrint := req.GetBool("prettyPrint", deps.PrettyPrint)
 
 		fm, body, err := deps.Vault.GetFrontmatter(ctx, path)
 		if err != nil {
@@ -42,19 +41,15 @@ func getFrontmatterHandler(deps Deps) server.ToolHandlerFunc {
 			Frontmatter map[string]any `json:"frontmatter"`
 			Body        string         `json:"body"`
 		}
-		result, err := response.FormatJSON(fmResponse{
+		return response.ToolResult(req, deps.PrettyPrint, fmResponse{
 			Path:        path,
 			Frontmatter: fm,
 			Body:        body,
-		}, prettyPrint)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(result), nil
+		})
 	}
 }
 
-func registerUpdateFrontmatter(s *server.MCPServer, deps Deps) {
+func updateFrontmatterSpec(deps Deps) toolSpec {
 	tool := mcp.NewTool("update_frontmatter",
 		mcp.WithDescription("Update YAML frontmatter fields in a note. Preserves existing key ordering. Use updates to set/overwrite keys and removeKeys to delete keys."),
 		mcp.WithString("path",
@@ -67,10 +62,13 @@ func registerUpdateFrontmatter(s *server.MCPServer, deps Deps) {
 		mcp.WithString("removeKeys",
 			mcp.Description("JSON array of key names to remove from the frontmatter"),
 		),
+		mcp.WithBoolean("prettyPrint",
+			mcp.Description("Format the JSON response with indentation (default: false)"),
+		),
 		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(true),
 	)
-	s.AddTool(tool, updateFrontmatterHandler(deps))
+	return newToolSpec(tool, updateFrontmatterHandler(deps))
 }
 
 func updateFrontmatterHandler(deps Deps) server.ToolHandlerFunc {
@@ -80,18 +78,14 @@ func updateFrontmatterHandler(deps Deps) server.ToolHandlerFunc {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		var updates map[string]any
-		if req.GetString("updates", "") != "" {
-			if errResult := parseJSONArg(req, "updates", &updates); errResult != nil {
-				return errResult, nil
-			}
+		updates, errResult := optStringMap(req, "updates")
+		if errResult != nil {
+			return errResult, nil
 		}
 
-		var removeKeys []string
-		if req.GetString("removeKeys", "") != "" {
-			if errResult := parseJSONArg(req, "removeKeys", &removeKeys); errResult != nil {
-				return errResult, nil
-			}
+		removeKeys, errResult := optStringSlice(req, "removeKeys")
+		if errResult != nil {
+			return errResult, nil
 		}
 
 		if err := deps.Vault.UpdateFrontmatter(ctx, path, updates, removeKeys); err != nil {
@@ -108,15 +102,11 @@ func updateFrontmatterHandler(deps Deps) server.ToolHandlerFunc {
 		for k := range updates {
 			updatedKeys = append(updatedKeys, k)
 		}
-		result, err := response.FormatJSON(updateResponse{
+		return response.ToolResult(req, deps.PrettyPrint, updateResponse{
 			Success: true,
 			Path:    path,
 			Updated: updatedKeys,
 			Removed: removeKeys,
-		}, deps.PrettyPrint)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(result), nil
+		})
 	}
 }

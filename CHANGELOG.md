@@ -7,6 +7,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+**Vault write paths: size cap, TOCTOU races, and Windows-unsafe paths**
+- The 16 MB size cap was enforced only by `ReadNote`; `update_frontmatter`, `patch_note`,
+  `manage_tags`, and the vault-wide tag aggregation read files uncapped. All read paths now share
+  a single capped `readNoteBytes` helper.
+- `write_note` in append/prepend mode checked only the incoming content against the cap, not the
+  combined result — repeated appends could grow a note without bound. Now checked after assembly.
+- `move_note`, `manage_tags`, and `update_frontmatter` checked their target didn't already exist
+  before acquiring the internal write lock. For `move_note` this was a genuine data-loss race: two
+  concurrent moves to the same destination could both pass the check and both write, silently
+  clobbering one. All three checks now run inside the lock.
+- `manage_tags` and `update_frontmatter` did not check for request cancellation on entry.
+- `sanitizePath` now rejects Windows-unsafe path forms regardless of build platform: drive-relative
+  paths (`C:foo`), NTFS alternate data streams (`note.md:hidden`), reserved device names (`NUL`,
+  `CON`, `COM1`, etc.), and trailing dots/spaces that Windows silently strips.
+
+**`patch_note` heading matching is now consistent with the section-boundary scanner**
+- `isHeadingLine` accepted any line whose `#`-trimmed text matched the target heading, including
+  malformed ATX lines with no space after the `#` run (e.g. `#Introduction`). `headingLevel` — used
+  immediately afterward to find the end of the section — requires that space and treats such a line
+  as non-heading. The mismatch could return an empty level for the matched heading, corrupting the
+  same-or-higher-level scan used by `before`/`after`/`replace_body` patches. `isHeadingLine` now
+  requires the same ATX space rule as `headingLevel`.
+
+**BM25 phrase-bigram scoring counted the wrong word pair**
+- Multi-word search queries build a "phrase key" from the raw, pre-deduplication query tokens (e.g.
+  `"cat cat dog"` → phrase key `cat\x00cat`), but the bigram counter scanned the document using the
+  deduplicated term list (`["cat", "dog"]`), so it counted occurrences of "cat dog" and credited them
+  to the "cat cat" phrase bonus. Any query with a repeated word scored the wrong bigram. The counter
+  now derives the two words it counts from the phrase key itself.
+
+**Token counting no longer reaches the network**
+- `CountTokens` loaded the `cl100k_base` rank table via `tiktoken-go`'s default HTTP loader, which
+  fetched `openaipublic.blob.core.windows.net` on a cold cache — a filesystem MCP server silently
+  reaching the network on every response. The rank table is now vendored
+  (`internal/response/assets/cl100k_base.tiktoken`) and loaded via `go:embed`; token counting is
+  fully offline. Removed the `len(text)/4` fallback that masked encoder-init failure — that path is
+  now unreachable, so it panics loudly instead of silently returning a wrong count.
+
+### Changed
+
+**`MaxResults` is now a hard ceiling on every result-bounded tool**
+- Previously `deps.MaxResults` (`--max-results` / `OBSIDIAN_MAX_RESULTS`) behaved inconsistently:
+  it was only a *fallback default* for `list_directory` (an explicit `limit` above it was honored
+  in full), a real ceiling for `get_recent_changes` and `get_recent_periodic_notes`, and was not
+  applied at all for `search_notes` / `search_regex`. All five tools now clamp their effective
+  limit to `MaxResults` regardless of what the caller requests. If you were relying on an explicit
+  `limit` to exceed `MaxResults` for `list_directory`, `search_notes`, or `search_regex`, raise
+  `--max-results` instead.
+
+**Minimum requirements**
+- Go build/toolchain floor raised `1.23` → `1.27.0`. Building from source with `GOTOOLCHAIN=local`
+  now requires Go 1.27+; `GOTOOLCHAIN=auto` (the Go 1.21+ default) upgrades automatically.
+- `github.com/mark3labs/mcp-go` `v0.32.0` → `v0.58.0`
+- `github.com/pkoukk/tiktoken-go` `v0.1.7` → `v0.1.8`
+- `github.com/stretchr/testify` `v1.9.0` → `v1.12.1` (test-only)
+- Added explicit `golang.org/x/text v0.41.0` requirement, overriding a vulnerable transitive
+  version pulled in by `mcp-go` (GO-2026-5970, affected range `[0, 0.39.0)`)
+
 ---
 
 ## [0.1.0] - 2026-06-22

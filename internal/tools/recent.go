@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"log/slog"
 	"os"
 	"sort"
 	"time"
@@ -13,7 +14,7 @@ import (
 
 const defaultRecentLimit = 10
 
-func registerGetRecentChanges(s *server.MCPServer, deps Deps) {
+func getRecentChangesSpec(deps Deps) toolSpec {
 	tool := mcp.NewTool("get_recent_changes",
 		mcp.WithDescription("List notes most recently modified in the vault"),
 		mcp.WithNumber("limit",
@@ -26,25 +27,18 @@ func registerGetRecentChanges(s *server.MCPServer, deps Deps) {
 		mcp.WithBoolean("summary",
 			mcp.Description("When true, include the first 200 characters of each note (default: false)"),
 		),
+		mcp.WithBoolean("prettyPrint",
+			mcp.Description("Format the JSON response with indentation (default: false)"),
+		),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
 	)
-	s.AddTool(tool, recentChangesHandler(deps))
+	return newToolSpec(tool, recentChangesHandler(deps))
 }
 
 func recentChangesHandler(deps Deps) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		limit := req.GetInt("limit", defaultRecentLimit)
-		if limit <= 0 {
-			limit = defaultRecentLimit
-		}
-		maxResults := deps.MaxResults
-		if maxResults <= 0 {
-			maxResults = 20
-		}
-		if limit > maxResults {
-			limit = maxResults
-		}
+		limit := effectiveLimit(req.GetInt("limit", defaultRecentLimit), defaultRecentLimit, deps.MaxResults)
 
 		sinceStr := req.GetString("since", "")
 		var sinceTime time.Time
@@ -68,6 +62,7 @@ func recentChangesHandler(deps Deps) server.ToolHandlerFunc {
 		walkErr := deps.Vault.WalkNotes(ctx, func(rel, abs string) error {
 			info, err := os.Stat(abs)
 			if err != nil {
+				slog.Warn("get_recent_changes: stat failed", "path", rel, "err", err)
 				return nil // skip unreadable files
 			}
 			mt := info.ModTime().UTC()
@@ -118,13 +113,9 @@ func recentChangesHandler(deps Deps) server.ToolHandlerFunc {
 			Count int         `json:"count"`
 		}
 
-		out, err := response.FormatJSON(recentResponse{
+		return response.ToolResult(req, deps.PrettyPrint, recentResponse{
 			Notes: notes,
 			Count: len(notes),
-		}, deps.PrettyPrint)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(out), nil
+		})
 	}
 }

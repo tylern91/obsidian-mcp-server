@@ -89,6 +89,10 @@ func (s *Service) sanitizePath(op, relativePath string) (cleaned, absPath string
 		return "", "", &PathError{Op: op, Path: relativePath, Err: ErrPathTraversal}
 	}
 
+	if err := checkWindowsSafe(cleaned); err != nil {
+		return "", "", &PathError{Op: op, Path: relativePath, Err: err}
+	}
+
 	absPath = filepath.Join(s.root, cleaned)
 
 	if !s.isUnderRoot(absPath) {
@@ -100,6 +104,56 @@ func (s *Service) sanitizePath(op, relativePath string) (cleaned, absPath string
 	}
 
 	return cleaned, absPath, nil
+}
+
+// windowsReservedNames are device names that Windows treats specially regardless
+// of extension (e.g. "NUL.md" still refers to the NUL device).
+var windowsReservedNames = map[string]bool{
+	"CON": true, "PRN": true, "AUX": true, "NUL": true,
+	"COM1": true, "COM2": true, "COM3": true, "COM4": true, "COM5": true,
+	"COM6": true, "COM7": true, "COM8": true, "COM9": true,
+	"LPT1": true, "LPT2": true, "LPT3": true, "LPT4": true, "LPT5": true,
+	"LPT6": true, "LPT7": true, "LPT8": true, "LPT9": true,
+}
+
+// checkWindowsSafe rejects path forms that are dangerous or ambiguous on Windows
+// (drive-relative paths, NTFS alternate data streams, reserved device names, and
+// trailing dots/spaces that Windows silently strips), regardless of the platform
+// this binary is built for. filepath.IsAbs and filepath.Clean alone don't catch
+// these: e.g. "C:foo" is relative per filepath.IsAbs on Windows, and a build for
+// one GOOS must still refuse path forms unsafe on a Windows deployment.
+func checkWindowsSafe(cleaned string) error {
+	segments := strings.Split(cleaned, string(filepath.Separator))
+	for _, seg := range segments {
+		if seg == "" || seg == "." {
+			continue
+		}
+
+		if len(seg) >= 2 && seg[1] == ':' && isASCIILetter(seg[0]) {
+			return ErrPathTraversal // drive-relative path, e.g. "C:foo"
+		}
+
+		if strings.Contains(seg, ":") {
+			return ErrPathTraversal // NTFS alternate data stream, e.g. "note.md:hidden"
+		}
+
+		name := seg
+		if i := strings.IndexByte(name, '.'); i >= 0 {
+			name = name[:i]
+		}
+		if windowsReservedNames[strings.ToUpper(name)] {
+			return ErrPathTraversal
+		}
+
+		if seg != strings.TrimRight(seg, ". ") {
+			return ErrPathTraversal // trailing dot/space, silently stripped by Windows
+		}
+	}
+	return nil
+}
+
+func isASCIILetter(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
 }
 
 // resolveSymlink calls EvalSymlinks and verifies the target is under the vault root.
@@ -117,6 +171,13 @@ func (s *Service) resolveSymlink(op, relativePath, absPath string) (string, erro
 // checkSymlinksForWrite verifies that neither the parent directory nor the file
 // itself (when it exists as a symlink) escape the vault boundary.
 // Must be called while holding s.mu.
+//
+// s.mu only serializes this process: an external actor with local filesystem
+// write access to the vault could still swap a path component between this
+// check and the write syscall that follows it (TOCTOU). Closing that fully
+// would require opening with O_NOFOLLOW instead of stat-then-write. This is
+// accepted as low-severity — the attacker already needs vault write access —
+// and is documented as a known boundary in SECURITY.md.
 func (s *Service) checkSymlinksForWrite(op, path, absPath string) error {
 	parentDir := filepath.Dir(absPath)
 	if _, statErr := os.Stat(parentDir); statErr == nil {
@@ -158,6 +219,8 @@ func (s *Service) ResolvePath(relativePath string) (string, error) {
 }
 
 // existenceCheck tries os.Stat and falls back to case-insensitive matching.
+// Read paths only (ResolvePath) — write paths must use existsStrict instead,
+// since the case-insensitive fallback would make a write target ambiguous.
 func (s *Service) existenceCheck(relativePath, absPath string) (string, error) {
 	_, err := os.Stat(absPath)
 	if err == nil {
@@ -196,8 +259,50 @@ func (s *Service) existenceCheck(relativePath, absPath string) (string, error) {
 	}
 }
 
+// existsStrict verifies absPath exists via a single os.Stat, with no
+// case-insensitive fallback. Write-path prologues must call this — not
+// existenceCheck — so a write target is never resolved ambiguously.
+// Must be called while holding s.mu, so the check and the write it guards
+// don't race a concurrent mutation.
+func (s *Service) existsStrict(op, relativePath, absPath string) error {
+	if _, err := os.Stat(absPath); err != nil {
+		if os.IsNotExist(err) {
+			return &PathError{Op: op, Path: relativePath, Err: ErrNotFound}
+		}
+		return &PathError{Op: op, Path: relativePath, Err: err}
+	}
+	return nil
+}
+
+// readNoteBytes reads absPath into memory via a single file descriptor,
+// enforcing maxFileSizeBytes. Returns ErrFileTooLarge if the file exceeds the
+// cap. The returned os.FileInfo comes from the same fd as the content, so
+// size/modTime stay consistent with what was actually read.
+func readNoteBytes(absPath string) ([]byte, os.FileInfo, error) {
+	f, err := os.Open(absPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if info.Size() > maxFileSizeBytes {
+		return nil, nil, ErrFileTooLarge
+	}
+
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return data, info, nil
+}
+
 // ReadNote reads a note at the given relative path and returns its content and metadata.
-// It uses a single file descriptor for consistent size/modTime vs content.
 // Returns ErrFileTooLarge if the file exceeds maxFileSizeBytes.
 func (s *Service) ReadNote(ctx context.Context, path string) (*Note, error) {
 	if err := ctx.Err(); err != nil {
@@ -209,22 +314,7 @@ func (s *Service) ReadNote(ctx context.Context, path string) (*Note, error) {
 		return nil, err
 	}
 
-	f, err := os.Open(absPath)
-	if err != nil {
-		return nil, &PathError{Op: "read", Path: path, Err: err}
-	}
-	defer f.Close()
-
-	info, err := f.Stat()
-	if err != nil {
-		return nil, &PathError{Op: "read", Path: path, Err: err}
-	}
-
-	if info.Size() > maxFileSizeBytes {
-		return nil, &PathError{Op: "read", Path: path, Err: ErrFileTooLarge}
-	}
-
-	data, err := io.ReadAll(f)
+	data, info, err := readNoteBytes(absPath)
 	if err != nil {
 		return nil, &PathError{Op: "read", Path: path, Err: err}
 	}
@@ -289,6 +379,10 @@ func (s *Service) WriteNote(ctx context.Context, path, content string, mode Writ
 			combined = existing + content
 		} else {
 			combined = content + existing
+		}
+
+		if int64(len(combined)) > maxFileSizeBytes {
+			return &PathError{Op: "write", Path: path, Err: ErrFileTooLarge}
 		}
 
 		if err := os.WriteFile(absPath, []byte(combined), 0644); err != nil {

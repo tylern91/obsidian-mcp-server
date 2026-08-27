@@ -28,7 +28,9 @@ func run(args []string) error {
 	cfg, err := config.Load(args)
 	if err != nil {
 		if errors.Is(err, config.ErrVersionRequested) {
-			fmt.Fprintf(os.Stdout, "obsidian-mcp %s\n", version.Version)
+			if _, err := fmt.Fprintf(os.Stdout, "obsidian-mcp %s\n", version.Version); err != nil {
+				return fmt.Errorf("write version to stdout: %w", err)
+			}
 			return nil
 		}
 		return err

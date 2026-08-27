@@ -3,7 +3,9 @@ package vault
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -12,6 +14,10 @@ import (
 
 	"github.com/tylern91/obsidian-mcp-server/internal/markdown"
 )
+
+// maxAggregateTagsNotes caps the number of notes scanned in a single
+// AggregateTags call to prevent unbounded memory growth on very large vaults.
+const maxAggregateTagsNotes = 10_000
 
 // tagRegex matches Obsidian-style inline tags: #tag preceded by start-of-line or
 // a non-word character.  The tag body must be Unicode letters, digits,
@@ -95,6 +101,13 @@ func MergeNoteTags(content []byte) []string {
 	}
 	inlineTags := ExtractInlineTags(body)
 
+	return mergeTags(fmTags, inlineTags)
+}
+
+// mergeTags returns the deduplicated union of fmTags and inlineTags: frontmatter
+// tags first (in declared order), then inline tags not already present.
+// Deduplication is exact-string, case-sensitive.
+func mergeTags(fmTags, inlineTags []string) []string {
 	seen := make(map[string]struct{}, len(fmTags)+len(inlineTags))
 	out := make([]string, 0, len(fmTags)+len(inlineTags))
 	for _, t := range fmTags {
@@ -134,24 +147,7 @@ func (s *Service) ListTags(ctx context.Context, path string) ([]string, error) {
 
 	inlineTags := ExtractInlineTags(body)
 
-	// Merge: frontmatter tags first, then inline-only tags.
-	seen := make(map[string]struct{}, len(fmTags)+len(inlineTags))
-	out := make([]string, 0, len(fmTags)+len(inlineTags))
-
-	for _, t := range fmTags {
-		if _, dup := seen[t]; !dup {
-			seen[t] = struct{}{}
-			out = append(out, t)
-		}
-	}
-	for _, t := range inlineTags {
-		if _, dup := seen[t]; !dup {
-			seen[t] = struct{}{}
-			out = append(out, t)
-		}
-	}
-
-	return out, nil
+	return mergeTags(fmTags, inlineTags), nil
 }
 
 // AddTag adds tag to the note at path.
@@ -165,11 +161,15 @@ func (s *Service) ListTags(ctx context.Context, path string) ([]string, error) {
 // The method is atomic: it locks the service mutex for the entire
 // read-modify-write cycle.
 func (s *Service) AddTag(ctx context.Context, path, tag, location string) error {
+	if err := ctx.Err(); err != nil {
+		return &PathError{Op: "add_tag", Path: path, Err: err}
+	}
+
 	if location == "" {
 		location = "frontmatter"
 	}
 	if location != "frontmatter" && location != "inline" {
-		return fmt.Errorf("add_tag: invalid location %q: must be frontmatter or inline", location)
+		return &PathError{Op: "add_tag", Path: path, Err: fmt.Errorf("invalid location %q: must be frontmatter or inline", location)}
 	}
 
 	_, absPath, err := s.sanitizePath("add_tag", path)
@@ -177,21 +177,18 @@ func (s *Service) AddTag(ctx context.Context, path, tag, location string) error 
 		return err
 	}
 
-	if _, statErr := os.Stat(absPath); statErr != nil {
-		if os.IsNotExist(statErr) {
-			return &PathError{Op: "add_tag", Path: path, Err: ErrNotFound}
-		}
-		return &PathError{Op: "add_tag", Path: path, Err: statErr}
-	}
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if err := s.existsStrict("add_tag", path, absPath); err != nil {
+		return err
+	}
 
 	if err := s.checkSymlinksForWrite("add_tag", path, absPath); err != nil {
 		return err
 	}
 
-	data, err := os.ReadFile(absPath)
+	data, _, err := readNoteBytes(absPath)
 	if err != nil {
 		return &PathError{Op: "add_tag", Path: path, Err: err}
 	}
@@ -203,7 +200,7 @@ func (s *Service) AddTag(ctx context.Context, path, tag, location string) error 
 	if hasFM {
 		var doc yaml.Node
 		if unmarshalErr := yaml.Unmarshal([]byte(rawFM), &doc); unmarshalErr != nil {
-			return fmt.Errorf("%w: %s", ErrInvalidFrontmatter, unmarshalErr.Error())
+			return &PathError{Op: "add_tag", Path: path, Err: fmt.Errorf("%w: %w", ErrInvalidFrontmatter, unmarshalErr)}
 		}
 		if doc.Kind == yaml.DocumentNode && len(doc.Content) > 0 {
 			mapping = doc.Content[0]
@@ -216,7 +213,7 @@ func (s *Service) AddTag(ctx context.Context, path, tag, location string) error 
 	if location == "frontmatter" {
 		content, err = addTagToFrontmatter(mapping, tag, body)
 		if err != nil {
-			return fmt.Errorf("add_tag: %w", err)
+			return &PathError{Op: "add_tag", Path: path, Err: err}
 		}
 	} else {
 		// Inline: append \n#tag to the body, then reassemble.
@@ -227,14 +224,17 @@ func (s *Service) AddTag(ctx context.Context, path, tag, location string) error 
 		newBody += "#" + tag + "\n"
 
 		if hasFM {
-			out, marshalErr := yaml.Marshal(mapping)
-			if marshalErr != nil {
-				return fmt.Errorf("add_tag: marshal: %w", marshalErr)
-			}
-			content = "---\n" + string(out) + "---\n" + newBody
+			// Reuse the original raw frontmatter text verbatim instead of
+			// re-marshaling the unchanged mapping, so untouched notes don't
+			// get a gratuitous YAML reformat.
+			content = "---\n" + rawFM + "---\n" + newBody
 		} else {
 			content = newBody
 		}
+	}
+
+	if content == string(data) {
+		return nil
 	}
 
 	if writeErr := os.WriteFile(absPath, []byte(content), 0644); writeErr != nil {
@@ -312,26 +312,27 @@ func addTagToFrontmatter(mapping *yaml.Node, tag, body string) (string, error) {
 // counted as a prose tag). The body is processed line-by-line using a
 // fence-state-machine so that lines inside fences are written back unchanged.
 func (s *Service) RemoveTag(ctx context.Context, path, tag string) error {
+	if err := ctx.Err(); err != nil {
+		return &PathError{Op: "remove_tag", Path: path, Err: err}
+	}
+
 	_, absPath, err := s.sanitizePath("remove_tag", path)
 	if err != nil {
 		return err
 	}
 
-	if _, statErr := os.Stat(absPath); statErr != nil {
-		if os.IsNotExist(statErr) {
-			return &PathError{Op: "remove_tag", Path: path, Err: ErrNotFound}
-		}
-		return &PathError{Op: "remove_tag", Path: path, Err: statErr}
-	}
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if err := s.existsStrict("remove_tag", path, absPath); err != nil {
+		return err
+	}
 
 	if err := s.checkSymlinksForWrite("remove_tag", path, absPath); err != nil {
 		return err
 	}
 
-	data, err := os.ReadFile(absPath)
+	data, _, err := readNoteBytes(absPath)
 	if err != nil {
 		return &PathError{Op: "remove_tag", Path: path, Err: err}
 	}
@@ -343,7 +344,7 @@ func (s *Service) RemoveTag(ctx context.Context, path, tag string) error {
 	if hasFM {
 		var doc yaml.Node
 		if unmarshalErr := yaml.Unmarshal([]byte(rawFM), &doc); unmarshalErr != nil {
-			return fmt.Errorf("%w: %s", ErrInvalidFrontmatter, unmarshalErr.Error())
+			return &PathError{Op: "remove_tag", Path: path, Err: fmt.Errorf("%w: %w", ErrInvalidFrontmatter, unmarshalErr)}
 		}
 		if doc.Kind == yaml.DocumentNode && len(doc.Content) > 0 {
 			mapping = doc.Content[0]
@@ -388,7 +389,7 @@ func (s *Service) RemoveTag(ctx context.Context, path, tag string) error {
 
 		if !inFence {
 			// Check whether this line opens a fence.
-			if ch, n := removeTagFenceOpener(trimmed); n > 0 {
+			if ch, n, ok := markdown.FenceOpener(trimmed); ok {
 				inFence = true
 				fenceChar = ch
 				fenceLen = n
@@ -406,7 +407,7 @@ func (s *Service) RemoveTag(ctx context.Context, path, tag string) error {
 			out = append(out, replaced)
 		} else {
 			// Inside a fence: check for closing delimiter.
-			if removeTagFenceCloser(trimmed, fenceChar, fenceLen) {
+			if markdown.IsFenceCloser(trimmed, fenceChar, fenceLen) {
 				inFence = false
 			}
 			out = append(out, line) // preserve fence content unchanged
@@ -419,7 +420,7 @@ func (s *Service) RemoveTag(ctx context.Context, path, tag string) error {
 	if hasFM && mapping != nil {
 		marshaledFM, marshalErr := yaml.Marshal(mapping)
 		if marshalErr != nil {
-			return fmt.Errorf("remove_tag: marshal: %w", marshalErr)
+			return &PathError{Op: "remove_tag", Path: path, Err: fmt.Errorf("marshal: %w", marshalErr)}
 		}
 		assembled = "---\n" + string(marshaledFM) + "---\n" + newBody
 	} else {
@@ -433,45 +434,6 @@ func (s *Service) RemoveTag(ctx context.Context, path, tag string) error {
 	return nil
 }
 
-// removeTagFenceOpener reports whether line opens a fenced code block.
-// It returns the fence character ('`' or '~') and the run length (≥3) on match,
-// or 0, 0 when the line is not a fence opener.
-// The fence must start at column 0 and consist of 3 or more identical characters.
-func removeTagFenceOpener(line string) (byte, int) {
-	for _, ch := range []byte{'`', '~'} {
-		if len(line) >= 3 && line[0] == ch && line[1] == ch && line[2] == ch {
-			n := 3
-			for n < len(line) && line[n] == ch {
-				n++
-			}
-			return ch, n
-		}
-	}
-	return 0, 0
-}
-
-// removeTagFenceCloser reports whether line closes a fence that was opened with
-// fenceChar and run length fenceLen. A closer requires at least fenceLen
-// consecutive fenceChar characters, optionally followed by spaces only.
-func removeTagFenceCloser(line string, fenceChar byte, fenceLen int) bool {
-	if len(line) < fenceLen {
-		return false
-	}
-	i := 0
-	for i < len(line) && line[i] == fenceChar {
-		i++
-	}
-	if i < fenceLen {
-		return false
-	}
-	for ; i < len(line); i++ {
-		if line[i] != ' ' {
-			return false
-		}
-	}
-	return true
-}
-
 // AggregateTags walks the entire vault and returns a map from tag name to the
 // number of notes it appears in (frontmatter + inline, deduplicated per note).
 //
@@ -480,11 +442,18 @@ func removeTagFenceCloser(line string, fenceChar byte, fenceLen int) bool {
 // the service mutex.
 func (s *Service) AggregateTags(ctx context.Context) (map[string]int, error) {
 	counts := make(map[string]int)
+	scanned := 0
 
 	err := s.WalkNotes(ctx, func(rel, abs string) error {
-		data, readErr := os.ReadFile(abs)
+		if scanned >= maxAggregateTagsNotes {
+			return filepath.SkipAll
+		}
+		scanned++
+
+		data, _, readErr := readNoteBytes(abs)
 		if readErr != nil {
-			return nil // skip unreadable files silently
+			slog.Warn("aggregate_tags: read failed", "path", rel, "err", readErr)
+			return nil // skip unreadable and oversized files
 		}
 
 		content := string(data)

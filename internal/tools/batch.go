@@ -14,7 +14,7 @@ import (
 const defaultMaxBatch = 10
 const defaultHeadChars = 200
 
-func registerReadMultipleNotes(s *server.MCPServer, deps Deps) {
+func readMultipleNotesSpec(deps Deps) toolSpec {
 	tool := mcp.NewTool("read_multiple_notes",
 		mcp.WithDescription("Read the content of multiple notes in a single request"),
 		mcp.WithString("paths",
@@ -28,16 +28,19 @@ func registerReadMultipleNotes(s *server.MCPServer, deps Deps) {
 			mcp.Description("Number of runes for headOf when summary=true (default: 200)"),
 			mcp.DefaultNumber(200),
 		),
+		mcp.WithBoolean("prettyPrint",
+			mcp.Description("Format the JSON response with indentation (default: false)"),
+		),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
 	)
-	s.AddTool(tool, readMultipleNotesHandler(deps))
+	return newToolSpec(tool, readMultipleNotesHandler(deps))
 }
 
 func readMultipleNotesHandler(deps Deps) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		var paths []string
-		if errResult := parseJSONArg(req, "paths", &paths); errResult != nil {
+		paths, errResult := optStringSlice(req, "paths")
+		if errResult != nil {
 			return errResult, nil
 		}
 
@@ -51,12 +54,7 @@ func readMultipleNotesHandler(deps Deps) server.ToolHandlerFunc {
 		if maxBatch <= 0 {
 			maxBatch = defaultMaxBatch
 		}
-
-		truncated := false
-		if len(paths) > maxBatch {
-			paths = paths[:maxBatch]
-			truncated = true
-		}
+		paths, truncated := clampBatch(paths, maxBatch)
 
 		type noteEntry struct {
 			Path       string  `json:"path"`
@@ -99,35 +97,34 @@ func readMultipleNotesHandler(deps Deps) server.ToolHandlerFunc {
 			Truncated bool        `json:"truncated"`
 		}
 
-		result, err := response.FormatJSON(batchResponse{
+		return response.ToolResult(req, deps.PrettyPrint, batchResponse{
 			Notes:     notes,
 			Count:     len(notes),
 			Truncated: truncated,
-		}, deps.PrettyPrint)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(result), nil
+		})
 	}
 }
 
-func registerGetNotesInfo(s *server.MCPServer, deps Deps) {
+func getNotesInfoSpec(deps Deps) toolSpec {
 	tool := mcp.NewTool("get_notes_info",
 		mcp.WithDescription("Get metadata for multiple notes without reading full content"),
 		mcp.WithString("paths",
 			mcp.Required(),
 			mcp.Description(`JSON array of note paths relative to the vault root (e.g. ["Notes/a.md","Notes/b.md"])`),
 		),
+		mcp.WithBoolean("prettyPrint",
+			mcp.Description("Format the JSON response with indentation (default: false)"),
+		),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
 	)
-	s.AddTool(tool, getNotesInfoHandler(deps))
+	return newToolSpec(tool, getNotesInfoHandler(deps))
 }
 
 func getNotesInfoHandler(deps Deps) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		var paths []string
-		if errResult := parseJSONArg(req, "paths", &paths); errResult != nil {
+		paths, errResult := optStringSlice(req, "paths")
+		if errResult != nil {
 			return errResult, nil
 		}
 
@@ -135,12 +132,7 @@ func getNotesInfoHandler(deps Deps) server.ToolHandlerFunc {
 		if maxBatch <= 0 {
 			maxBatch = defaultMaxBatch
 		}
-
-		truncated := false
-		if len(paths) > maxBatch {
-			paths = paths[:maxBatch]
-			truncated = true
-		}
+		paths, truncated := clampBatch(paths, maxBatch)
 
 		type infoEntry struct {
 			Path      string  `json:"path"`
@@ -177,28 +169,27 @@ func getNotesInfoHandler(deps Deps) server.ToolHandlerFunc {
 			Truncated bool        `json:"truncated"`
 		}
 
-		result, err := response.FormatJSON(infoResponse{
+		return response.ToolResult(req, deps.PrettyPrint, infoResponse{
 			Notes:     notes,
 			Count:     len(notes),
 			Truncated: truncated,
-		}, deps.PrettyPrint)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(result), nil
+		})
 	}
 }
 
-func registerGetVaultStats(s *server.MCPServer, deps Deps) {
+func getVaultStatsSpec(deps Deps) toolSpec {
 	tool := mcp.NewTool("get_vault_stats",
 		mcp.WithDescription("Get aggregate statistics about the entire vault"),
 		mcp.WithBoolean("includeTokenCounts",
 			mcp.Description("When true, also sum token counts across all notes (default: false)"),
 		),
+		mcp.WithBoolean("prettyPrint",
+			mcp.Description("Format the JSON response with indentation (default: false)"),
+		),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
 	)
-	s.AddTool(tool, getVaultStatsHandler(deps))
+	return newToolSpec(tool, getVaultStatsHandler(deps))
 }
 
 func getVaultStatsHandler(deps Deps) server.ToolHandlerFunc {
@@ -254,10 +245,6 @@ func getVaultStatsHandler(deps Deps) server.ToolHandlerFunc {
 			statsResp.TotalTokens = &toks
 		}
 
-		out, err := response.FormatJSON(statsResp, deps.PrettyPrint)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(out), nil
+		return response.ToolResult(req, deps.PrettyPrint, statsResp)
 	}
 }

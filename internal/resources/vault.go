@@ -2,7 +2,6 @@ package resources
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -15,6 +14,17 @@ import (
 
 const resourceCacheTTL = 30 * time.Second
 
+// cachedResourceHandler wraps compute in a TTL cache keyed on the vault root,
+// the shared shape behind every cached vault resource in this package.
+func cachedResourceHandler(deps Deps, compute func(context.Context, Deps) ([]mcp.ResourceContents, error)) server.ResourceHandlerFunc {
+	cache := &resourceCache{ttl: resourceCacheTTL}
+	return func(ctx context.Context, req mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+		return cache.get(deps.Vault.Root(), func() ([]mcp.ResourceContents, error) {
+			return compute(ctx, deps)
+		})
+	}
+}
+
 func registerVaultStats(s *server.MCPServer, deps Deps) {
 	res := mcp.NewResource(
 		"obsidian://vault/stats",
@@ -22,16 +32,7 @@ func registerVaultStats(s *server.MCPServer, deps Deps) {
 		mcp.WithResourceDescription("Aggregate statistics for the entire Obsidian vault: note count, total size, link count, top tags."),
 		mcp.WithMIMEType("application/json"),
 	)
-	s.AddResource(res, vaultStatsHandler(deps))
-}
-
-func vaultStatsHandler(deps Deps) server.ResourceHandlerFunc {
-	cache := &resourceCache{ttl: resourceCacheTTL}
-	return func(ctx context.Context, req mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
-		return cache.get(deps.Vault.Root(), func() ([]mcp.ResourceContents, error) {
-			return computeVaultStats(ctx, deps)
-		})
-	}
+	s.AddResource(res, cachedResourceHandler(deps, computeVaultStats))
 }
 
 func computeVaultStats(ctx context.Context, deps Deps) ([]mcp.ResourceContents, error) {
@@ -45,7 +46,7 @@ func computeVaultStats(ctx context.Context, deps Deps) ([]mcp.ResourceContents, 
 
 	vs, err := deps.Vault.VaultStats(ctx, vault.VaultStatsOpts{})
 	if err != nil {
-		return resourceError("obsidian://vault/stats", fmt.Sprintf("vault walk failed: %v", err)), nil
+		return response.ErrorResourceContents("obsidian://vault/stats", fmt.Sprintf("vault walk failed: %v", err)), nil
 	}
 
 	topEntries := vault.TopTagsByCount(vs.TagCounts, 10)
@@ -61,15 +62,7 @@ func computeVaultStats(ctx context.Context, deps Deps) ([]mcp.ResourceContents, 
 		TopTags:    top,
 		VaultRoot:  deps.Vault.Root(),
 	}
-	text, err := response.FormatJSON(stats, deps.PrettyPrint)
-	if err != nil {
-		return resourceError("obsidian://vault/stats", err.Error()), nil
-	}
-	return []mcp.ResourceContents{mcp.TextResourceContents{
-		URI:      "obsidian://vault/stats",
-		MIMEType: "application/json",
-		Text:     text,
-	}}, nil
+	return response.JSONResourceContents("obsidian://vault/stats", "application/json", stats, deps.PrettyPrint), nil
 }
 
 func registerVaultTags(s *server.MCPServer, deps Deps) {
@@ -79,22 +72,13 @@ func registerVaultTags(s *server.MCPServer, deps Deps) {
 		mcp.WithResourceDescription("All tags used in the vault with their note counts, sorted by frequency."),
 		mcp.WithMIMEType("application/json"),
 	)
-	s.AddResource(res, vaultTagsHandler(deps))
-}
-
-func vaultTagsHandler(deps Deps) server.ResourceHandlerFunc {
-	cache := &resourceCache{ttl: resourceCacheTTL}
-	return func(ctx context.Context, req mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
-		return cache.get(deps.Vault.Root(), func() ([]mcp.ResourceContents, error) {
-			return computeVaultTags(ctx, deps)
-		})
-	}
+	s.AddResource(res, cachedResourceHandler(deps, computeVaultTags))
 }
 
 func computeVaultTags(ctx context.Context, deps Deps) ([]mcp.ResourceContents, error) {
 	tagCounts, err := deps.Vault.AggregateTags(ctx)
 	if err != nil {
-		return resourceError("obsidian://vault/tags", fmt.Sprintf("tag aggregation failed: %v", err)), nil
+		return response.ErrorResourceContents("obsidian://vault/tags", fmt.Sprintf("tag aggregation failed: %v", err)), nil
 	}
 
 	entries := vault.TopTagsByCount(tagCounts, 0)
@@ -103,25 +87,7 @@ func computeVaultTags(ctx context.Context, deps Deps) ([]mcp.ResourceContents, e
 		Tags  []vault.TagCount `json:"tags"`
 		Total int              `json:"total"`
 	}
-	text, err := response.FormatJSON(tagsResult{Tags: entries, Total: len(entries)}, deps.PrettyPrint)
-	if err != nil {
-		return resourceError("obsidian://vault/tags", err.Error()), nil
-	}
-	return []mcp.ResourceContents{mcp.TextResourceContents{
-		URI:      "obsidian://vault/tags",
-		MIMEType: "application/json",
-		Text:     text,
-	}}, nil
-}
-
-// resourceError returns a JSON error payload as a resource result.
-func resourceError(uri, msg string) []mcp.ResourceContents {
-	b, _ := json.Marshal(map[string]string{"error": msg, "uri": uri})
-	return []mcp.ResourceContents{mcp.TextResourceContents{
-		URI:      uri,
-		MIMEType: "application/json",
-		Text:     string(b),
-	}}
+	return response.JSONResourceContents("obsidian://vault/tags", "application/json", tagsResult{Tags: entries, Total: len(entries)}, deps.PrettyPrint), nil
 }
 
 // pathFromURI extracts the path component after the given prefix from a resource URI.

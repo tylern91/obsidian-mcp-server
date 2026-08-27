@@ -8,7 +8,7 @@ import (
 	"github.com/tylern91/obsidian-mcp-server/internal/response"
 )
 
-func registerGetBacklinks(s *server.MCPServer, deps Deps) {
+func getBacklinksSpec(deps Deps) toolSpec {
 	tool := mcp.NewTool("get_backlinks",
 		mcp.WithDescription("Find all notes in the vault that link to the specified note."),
 		mcp.WithString("path",
@@ -21,7 +21,7 @@ func registerGetBacklinks(s *server.MCPServer, deps Deps) {
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
 	)
-	s.AddTool(tool, getBacklinksHandler(deps))
+	return newToolSpec(tool, getBacklinksHandler(deps))
 }
 
 func getBacklinksHandler(deps Deps) server.ToolHandlerFunc {
@@ -30,7 +30,6 @@ func getBacklinksHandler(deps Deps) server.ToolHandlerFunc {
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		prettyPrint := req.GetBool("prettyPrint", deps.PrettyPrint)
 
 		backlinks, err := deps.Vault.GetBacklinks(ctx, path)
 		if err != nil {
@@ -56,14 +55,10 @@ func getBacklinksHandler(deps Deps) server.ToolHandlerFunc {
 			Backlinks []backlinkEntry `json:"backlinks"`
 			Total     int             `json:"total"`
 		}
-		result, err := response.FormatJSON(backlinksResponse{
+		return response.ToolResult(req, deps.PrettyPrint, backlinksResponse{
 			Target:    path,
 			Backlinks: entries,
 			Total:     len(entries),
-		}, prettyPrint)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(result), nil
+		})
 	}
 }

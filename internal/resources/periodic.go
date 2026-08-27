@@ -6,6 +6,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/tylern91/obsidian-mcp-server/internal/response"
 )
 
 func registerPeriodicResource(s *server.MCPServer, deps Deps) {
@@ -23,12 +24,12 @@ func periodicResourceHandler(deps Deps) server.ResourceTemplateHandlerFunc {
 		uri := req.Params.URI
 		granularity := pathFromURI(uri, "obsidian://periodic/")
 		if granularity == "" {
-			return resourceError(uri, fmt.Sprintf("cannot parse granularity from URI %q", uri)), nil
+			return response.ErrorResourceContents(uri, fmt.Sprintf("cannot parse granularity from URI %q", uri)), nil
 		}
 
 		notePath, err := deps.Periodic.Resolve(granularity, 0)
 		if err != nil {
-			return resourceError(uri, fmt.Sprintf("could not resolve %s periodic note: %v", granularity, err)), nil
+			return response.ErrorResourceContents(uri, fmt.Sprintf("could not resolve %s periodic note: %v", granularity, err)), nil
 		}
 
 		note, err := deps.Vault.ReadNote(ctx, notePath)

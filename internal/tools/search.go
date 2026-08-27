@@ -9,7 +9,7 @@ import (
 	"github.com/tylern91/obsidian-mcp-server/internal/search"
 )
 
-func registerSearchNotes(s *server.MCPServer, deps Deps) {
+func searchNotesSpec(deps Deps) toolSpec {
 	tool := mcp.NewTool("search_notes",
 		mcp.WithDescription("Search vault notes using BM25 ranked full-text search. Returns results sorted by relevance score."),
 		mcp.WithString("query",
@@ -40,7 +40,7 @@ func registerSearchNotes(s *server.MCPServer, deps Deps) {
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
 	)
-	s.AddTool(tool, searchNotesHandler(deps))
+	return newToolSpec(tool, searchNotesHandler(deps))
 }
 
 func searchNotesHandler(deps Deps) server.ToolHandlerFunc {
@@ -49,11 +49,11 @@ func searchNotesHandler(deps Deps) server.ToolHandlerFunc {
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		prettyPrint := req.GetBool("prettyPrint", deps.PrettyPrint)
 
 		opts := search.BM25Options{
 			Query:             query,
 			Limit:             req.GetInt("limit", 0),
+			MaxResults:        deps.MaxResults,
 			MaxMatchesPerFile: req.GetInt("maxMatchesPerFile", 0),
 			CaseSensitive:     req.GetBool("caseSensitive", false),
 			SearchContent:     req.GetBool("searchContent", true),
@@ -74,19 +74,15 @@ func searchNotesHandler(deps Deps) server.ToolHandlerFunc {
 			Results []search.BM25Result `json:"results"`
 			Total   int                 `json:"total"`
 		}
-		out, err := response.FormatJSON(searchNotesResponse{
+		return response.ToolResult(req, deps.PrettyPrint, searchNotesResponse{
 			Query:   query,
 			Results: results,
 			Total:   len(results),
-		}, prettyPrint)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(out), nil
+		})
 	}
 }
 
-func registerSearchRegex(s *server.MCPServer, deps Deps) {
+func searchRegexSpec(deps Deps) toolSpec {
 	tool := mcp.NewTool("search_regex",
 		mcp.WithDescription("Search vault notes using a regex or glob pattern."),
 		mcp.WithString("pattern",
@@ -112,7 +108,7 @@ func registerSearchRegex(s *server.MCPServer, deps Deps) {
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
 	)
-	s.AddTool(tool, searchRegexHandler(deps))
+	return newToolSpec(tool, searchRegexHandler(deps))
 }
 
 func searchRegexHandler(deps Deps) server.ToolHandlerFunc {
@@ -121,7 +117,6 @@ func searchRegexHandler(deps Deps) server.ToolHandlerFunc {
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		prettyPrint := req.GetBool("prettyPrint", deps.PrettyPrint)
 		scope := req.GetString("scope", "content")
 
 		opts := search.RegexOptions{
@@ -129,6 +124,7 @@ func searchRegexHandler(deps Deps) server.ToolHandlerFunc {
 			IsGlob:            req.GetBool("isGlob", false),
 			Scope:             scope,
 			Limit:             req.GetInt("limit", 0),
+			MaxResults:        deps.MaxResults,
 			MaxMatchesPerFile: req.GetInt("maxMatchesPerFile", 0),
 		}
 
@@ -148,15 +144,11 @@ func searchRegexHandler(deps Deps) server.ToolHandlerFunc {
 			Results []search.RegexResult `json:"results"`
 			Total   int                  `json:"total"`
 		}
-		out, err := response.FormatJSON(searchRegexResponse{
+		return response.ToolResult(req, deps.PrettyPrint, searchRegexResponse{
 			Pattern: pattern,
 			Scope:   scope,
 			Results: results,
 			Total:   len(results),
-		}, prettyPrint)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(out), nil
+		})
 	}
 }

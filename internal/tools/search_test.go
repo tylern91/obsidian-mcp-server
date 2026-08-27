@@ -218,6 +218,35 @@ func TestSearchRegexHandler_ContentMatch(t *testing.T) {
 	}
 }
 
+func TestSearchNotesHandler_MaxResultsCeiling(t *testing.T) {
+	deps := searchDeps(t)
+	deps.MaxResults = 1
+	handler := tools.SearchNotesHandler(deps)
+
+	// "machine learning" matches multiple notes in the fixture vault; an
+	// explicit limit of 100 must still be capped by deps.MaxResults.
+	req := makeRequestMixed("query", "machine learning", "limit", 100)
+	result, err := handler(context.Background(), req)
+	if err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected IsError: %v", result.Content)
+	}
+
+	text := extractText(t, result)
+	var resp struct {
+		Total   int               `json:"total"`
+		Results []json.RawMessage `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(text), &resp); err != nil {
+		t.Fatalf("json unmarshal: %v", err)
+	}
+	if len(resp.Results) > 1 {
+		t.Errorf("expected at most 1 result with MaxResults=1, got %d", len(resp.Results))
+	}
+}
+
 func TestSearchRegexHandler_PatternRequired(t *testing.T) {
 	deps := searchDeps(t)
 	handler := tools.SearchRegexHandler(deps)
@@ -301,5 +330,34 @@ func TestSearchRegexHandler_PrettyPrint(t *testing.T) {
 	}
 	if !foundIndent {
 		t.Error("expected indented JSON (newlines) for prettyPrint=true")
+	}
+}
+
+func TestSearchRegexHandler_MaxResultsCeiling(t *testing.T) {
+	deps := searchDeps(t)
+	deps.MaxResults = 1
+	handler := tools.SearchRegexHandler(deps)
+
+	// Matching every note path guarantees multiple results in the fixture
+	// vault; an explicit limit of 100 must still be capped by deps.MaxResults.
+	req := makeRequestMixed("pattern", ".*", "scope", "path", "limit", 100)
+	result, err := handler(context.Background(), req)
+	if err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected IsError: %v", result.Content)
+	}
+
+	text := extractText(t, result)
+	var resp struct {
+		Total   int               `json:"total"`
+		Results []json.RawMessage `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(text), &resp); err != nil {
+		t.Fatalf("json unmarshal: %v", err)
+	}
+	if len(resp.Results) > 1 {
+		t.Errorf("expected at most 1 result with MaxResults=1, got %d", len(resp.Results))
 	}
 }
