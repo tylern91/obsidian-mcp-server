@@ -14,6 +14,17 @@ import (
 
 const resourceCacheTTL = 30 * time.Second
 
+// cachedResourceHandler wraps compute in a TTL cache keyed on the vault root,
+// the shared shape behind every cached vault resource in this package.
+func cachedResourceHandler(deps Deps, compute func(context.Context, Deps) ([]mcp.ResourceContents, error)) server.ResourceHandlerFunc {
+	cache := &resourceCache{ttl: resourceCacheTTL}
+	return func(ctx context.Context, req mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+		return cache.get(deps.Vault.Root(), func() ([]mcp.ResourceContents, error) {
+			return compute(ctx, deps)
+		})
+	}
+}
+
 func registerVaultStats(s *server.MCPServer, deps Deps) {
 	res := mcp.NewResource(
 		"obsidian://vault/stats",
@@ -21,16 +32,7 @@ func registerVaultStats(s *server.MCPServer, deps Deps) {
 		mcp.WithResourceDescription("Aggregate statistics for the entire Obsidian vault: note count, total size, link count, top tags."),
 		mcp.WithMIMEType("application/json"),
 	)
-	s.AddResource(res, vaultStatsHandler(deps))
-}
-
-func vaultStatsHandler(deps Deps) server.ResourceHandlerFunc {
-	cache := &resourceCache{ttl: resourceCacheTTL}
-	return func(ctx context.Context, req mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
-		return cache.get(deps.Vault.Root(), func() ([]mcp.ResourceContents, error) {
-			return computeVaultStats(ctx, deps)
-		})
-	}
+	s.AddResource(res, cachedResourceHandler(deps, computeVaultStats))
 }
 
 func computeVaultStats(ctx context.Context, deps Deps) ([]mcp.ResourceContents, error) {
@@ -70,16 +72,7 @@ func registerVaultTags(s *server.MCPServer, deps Deps) {
 		mcp.WithResourceDescription("All tags used in the vault with their note counts, sorted by frequency."),
 		mcp.WithMIMEType("application/json"),
 	)
-	s.AddResource(res, vaultTagsHandler(deps))
-}
-
-func vaultTagsHandler(deps Deps) server.ResourceHandlerFunc {
-	cache := &resourceCache{ttl: resourceCacheTTL}
-	return func(ctx context.Context, req mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
-		return cache.get(deps.Vault.Root(), func() ([]mcp.ResourceContents, error) {
-			return computeVaultTags(ctx, deps)
-		})
-	}
+	s.AddResource(res, cachedResourceHandler(deps, computeVaultTags))
 }
 
 func computeVaultTags(ctx context.Context, deps Deps) ([]mcp.ResourceContents, error) {
