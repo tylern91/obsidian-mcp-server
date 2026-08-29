@@ -19,6 +19,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `scripts/pre-push` (installed via `make install-hooks`) to block pushing a
   `v*` tag whose version doesn't match `internal/version/version.go`/`CHANGELOG.md`.
 - Added `probity.config.mjs` (no-op) and `.gitattributes` (LF normalization).
+- `release.yml`'s checkout now actually persists the App-token credential
+  (`token: ${{ steps.app-token.outputs.token }}`) instead of the default,
+  read-only `GITHUB_TOKEN` — the previous checkout order minted the token but
+  never wired it into `actions/checkout`, so every tag push failed with a 403.
+- `release.yml`'s `Compute next version` step now treats
+  `internal/version/version.go` as the source of truth and uses
+  `bump-version.sh` to validate, not derive, the next tag — failing fast with
+  `::error::` on a mismatch instead of letting a wrong tag reach
+  `publish-assets.yml`'s cross-compile matrix before it fails.
 
 ### Security
 
@@ -65,6 +74,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`internal/response/assets/cl100k_base.tiktoken`) and loaded via `go:embed`; token counting is
   fully offline. Removed the `len(text)/4` fallback that masked encoder-init failure — that path is
   now unreachable, so it panics loudly instead of silently returning a wrong count.
+
+**README manual-install instructions pointed at the wrong path**
+- The release tarball extracts into a top-level `obsidian-mcp-<version>-<os>-<arch>/` directory
+  (so `LICENSE`/`NOTICE` ship alongside the binary), but the manual-install snippet ran
+  `install -m 0755 obsidian-mcp ...` from the extraction cwd, where no such file exists. Corrected
+  to reference the binary inside the extracted directory.
 
 ### Changed
 

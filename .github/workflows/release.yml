@@ -37,10 +37,6 @@ jobs:
       created: ${{ steps.mark.outputs.created }}
       version: ${{ steps.ver.outputs.next }}
     steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
       - name: Mint scoped App token
         id: app-token
         uses: actions/create-github-app-token@v3
@@ -49,6 +45,11 @@ jobs:
           private-key: ${{ secrets.HOMEBREW_APP_PRIVATE_KEY }}
           owner: tylern91
           repositories: obsidian-mcp-server
+
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Resolve trigger context
         id: ctx
@@ -94,9 +95,16 @@ jobs:
       - name: Compute next version
         id: ver
         run: |
+          set -Eeuo pipefail
+          bash scripts/check-version-sync.sh
           latest="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)"
           latest="${latest:-v0.0.0}"
-          next="$(bash scripts/bump-version.sh "$latest" "${{ steps.ctx.outputs.label }}")"
+          next="v$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' internal/version/version.go | head -1)"
+          expected="$(bash scripts/bump-version.sh "$latest" "${{ steps.ctx.outputs.label }}")"
+          if [ "$next" != "$expected" ]; then
+            echo "::error::internal/version/version.go says $next but label '${{ steps.ctx.outputs.label }}' from $latest implies $expected"
+            exit 1
+          fi
           echo "latest=$latest" >> "$GITHUB_OUTPUT"
           echo "next=$next" >> "$GITHUB_OUTPUT"
 
