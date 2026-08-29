@@ -33,14 +33,22 @@ permissions:
 jobs:
   version-sync:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 1
       - run: bash scripts/check-version-sync.sh
 
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 1
       - uses: actions/setup-go@v7
         with:
           go-version: "1.27.0"
@@ -57,7 +65,7 @@ jobs:
         run: go vet ./...
       - uses: golangci/golangci-lint-action@v9
         with:
-          version: latest
+          version: v2.13.1
 
   test:
     strategy:
@@ -65,8 +73,12 @@ jobs:
       matrix:
         toolchain: ["1.27", "stable"]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 1
       - uses: actions/setup-go@v7
         with:
           go-version: ${{ matrix.toolchain }}
@@ -81,6 +93,7 @@ jobs:
   build:
     needs: [lint, test]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       matrix:
         include:

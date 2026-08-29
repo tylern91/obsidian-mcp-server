@@ -1,0 +1,13 @@
+* text=auto eol=lf
+*.sh text eol=lf
+Makefile text eol=lf
+
+# Track binary assets via LFS if they're ever added (e.g. README screenshots).
+# Excludes *.tar.gz/*.zip deliberately — those are release build artifacts,
+# not repo content, and don't belong in LFS.
+*.png filter=lfs diff=lfs merge=lfs -text
+*.jpg filter=lfs diff=lfs merge=lfs -text
+*.jpeg filter=lfs diff=lfs merge=lfs -text
+*.gif filter=lfs diff=lfs merge=lfs -text
+*.webp filter=lfs diff=lfs merge=lfs -text
+*.pdf filter=lfs diff=lfs merge=lfs -text
