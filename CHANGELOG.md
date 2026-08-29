@@ -122,6 +122,11 @@ internally — this is the first real release, and it supersedes both.
   `git tag | grep ... | head -1` exits 1 when `grep` matches nothing, and `set -o pipefail`
   turned that into a silent script abort before the `v0.0.0` fallback ever ran — blocking
   the very first release. The `grep` is now tolerant of no matches.
+- `release.yml`'s `Build release notes` step always read `## [Unreleased]` regardless of
+  `--fallback-unreleased`/`--prev`, because `--from-existing` was never passed to
+  `build-release-notes.sh`. Once `[Unreleased]` was consolidated into `[0.1.0]`, this produced
+  empty notes and silently skipped the release via the `Empty notes guard`. The step now passes
+  `--from-existing` so it reads the version-matched section.
 
 **Vault write paths: size cap, TOCTOU races, and Windows-unsafe paths**
 - The 16 MB size cap was enforced only by `ReadNote`; `update_frontmatter`, `patch_note`,

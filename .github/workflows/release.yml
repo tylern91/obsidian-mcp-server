@@ -127,7 +127,7 @@ jobs:
         run: |
           bash scripts/build-release-notes.sh \
             "${{ steps.ver.outputs.next }}" "${{ steps.ctx.outputs.label }}" "${{ steps.ctx.outputs.breaking }}" \
-            --fallback-unreleased --prev "${{ steps.ver.outputs.latest }}" \
+            --from-existing --fallback-unreleased --prev "${{ steps.ver.outputs.latest }}" \
             > /tmp/RELEASE_BODY.md
           chars="$(wc -c < /tmp/RELEASE_BODY.md | tr -d ' ')"
           echo "chars=$chars" >> "$GITHUB_OUTPUT"
