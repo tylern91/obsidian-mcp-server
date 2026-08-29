@@ -137,7 +137,7 @@ curl -fLO https://github.com/tylern91/obsidian-mcp-server/releases/latest/downlo
 curl -fLO https://github.com/tylern91/obsidian-mcp-server/releases/latest/download/obsidian-mcp-<version>-darwin-arm64.tar.gz.sha256
 shasum -a 256 -c obsidian-mcp-<version>-darwin-arm64.tar.gz.sha256
 tar -xf obsidian-mcp-<version>-darwin-arm64.tar.gz
-install -m 0755 obsidian-mcp ~/.local/bin/obsidian-mcp
+install -m 0755 obsidian-mcp-<version>-darwin-arm64/obsidian-mcp ~/.local/bin/obsidian-mcp
 ```
 
 ### Homebrew (macOS/Linux)
