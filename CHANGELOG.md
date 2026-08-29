@@ -118,6 +118,11 @@ internally — this is the first real release, and it supersedes both.
 
 ### Fixed
 
+- `release.yml`'s `Compute next version` step aborted on a repo with zero existing tags:
+  `git tag | grep ... | head -1` exits 1 when `grep` matches nothing, and `set -o pipefail`
+  turned that into a silent script abort before the `v0.0.0` fallback ever ran — blocking
+  the very first release. The `grep` is now tolerant of no matches.
+
 **Vault write paths: size cap, TOCTOU races, and Windows-unsafe paths**
 - The 16 MB size cap was enforced only by `ReadNote`; `update_frontmatter`, `patch_note`,
   `manage_tags`, and the vault-wide tag aggregation read files uncapped. All read paths now share

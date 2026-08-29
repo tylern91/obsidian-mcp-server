@@ -97,7 +97,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           bash scripts/check-version-sync.sh
-          latest="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)"
+          latest="$(git tag --sort=-v:refname | { grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true; } | head -1)"
           latest="${latest:-v0.0.0}"
           next="v$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' internal/version/version.go | head -1)"
           expected="$(bash scripts/bump-version.sh "$latest" "${{ steps.ctx.outputs.label }}")"
