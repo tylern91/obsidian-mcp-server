@@ -73,9 +73,9 @@ jobs:
             pr_number="$PR_NUMBER"
             dry_run=false
             label="patch"
-            if printf '%s' "$PR_LABELS" | tr ',' '\n' | grep -qx 'semver:major'; then
+            if printf '%s' "$PR_LABELS" | tr ',' '\n' | grep -qx 'major'; then
               label="major"
-            elif printf '%s' "$PR_LABELS" | tr ',' '\n' | grep -qx 'semver:minor'; then
+            elif printf '%s' "$PR_LABELS" | tr ',' '\n' | grep -qx 'minor'; then
               label="minor"
             fi
             # Pre-1.0, breaking changes take the minor slot, not major.
