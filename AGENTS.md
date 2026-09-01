@@ -1,6 +1,8 @@
 # AGENTS.md
 
-This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+This file provides guidance to AI coding agents (Claude Code, Codex, and others) when working
+with code in this repository. It is the single source of truth — `.claude/CLAUDE.md` just points
+here so Claude Code picks it up too.
 
 ## Project
 
@@ -54,6 +56,6 @@ go test -race ./internal/vault/ -run TestSanitizePath -v
 
 - **CI**: `.github/workflows/go.yml` runs `make lint`, `make test`, `make build`, and `govulncheck ./...` on every PR. `.github/workflows/release.yml` handles tag-triggered releases. `make lint` locally reproduces the same gate before pushing.
 - **Releases**: bump `internal/version/version.go`, tag SemVer (`vX.Y.Z`), update `CHANGELOG.md`. No goreleaser, no Dockerfile.
-- **MCP integration** (Codex): `codex mcp add obsidian -s user -e OBSIDIAN_VAULT_PATH=/path/to/vault -- obsidian-mcp`. See `README.md` § Installation for other clients.
+- **MCP integration**: `claude mcp add obsidian -s user -e OBSIDIAN_VAULT_PATH=/path/to/vault -- obsidian-mcp` (Claude Code) or `codex mcp add obsidian -s user -e OBSIDIAN_VAULT_PATH=/path/to/vault -- obsidian-mcp` (Codex). See `README.md` § Installation for Claude Desktop and other clients.
 - **`--log-level debug`** (or `OBSIDIAN_LOG_LEVEL=debug`) for verbose JSON logs to stderr. Default is `warn`.
 - **Pre-built `./obsidian-mcp` at repo root** is `.gitignore`d but may exist locally and be stale — prefer `make build` before testing.
