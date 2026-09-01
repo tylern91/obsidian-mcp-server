@@ -9,6 +9,7 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/tylern91/obsidian-mcp-server/internal/response"
 	"github.com/tylern91/obsidian-mcp-server/internal/search"
+	"github.com/tylern91/obsidian-mcp-server/internal/vault"
 )
 
 // defaultMaxDirEntries caps listing output when no explicit limit is set.
@@ -120,34 +121,46 @@ func listDirectoryHandler(deps Deps) server.ToolHandlerFunc {
 
 		// ── 7. Build response ───────────────────────────────────────────────
 		type conciseEntry struct {
-			Name  string `json:"name"`
-			Path  string `json:"path"`
-			IsDir bool   `json:"isDir"`
+			Name     string `json:"name"`
+			Path     string `json:"path"`
+			IsDir    bool   `json:"isDir"`
+			DeepLink string `json:"deepLink,omitempty"`
 		}
 		type fullEntry struct {
-			Name    string `json:"name"`
-			Path    string `json:"path"`
-			IsDir   bool   `json:"isDir"`
-			Size    int64  `json:"size"`
-			ModTime string `json:"modTime"`
+			Name     string `json:"name"`
+			Path     string `json:"path"`
+			IsDir    bool   `json:"isDir"`
+			Size     int64  `json:"size"`
+			ModTime  string `json:"modTime"`
+			DeepLink string `json:"deepLink,omitempty"`
+		}
+
+		// deepLinkFor omits the link for directories — obsidian://open resolves
+		// to a file, not a folder.
+		deepLinkFor := func(e vault.DirEntry) string {
+			if e.IsDir {
+				return ""
+			}
+			return obsidianDeepLink(deps.VaultName, e.Path)
 		}
 
 		var respEntries any
 		if concise {
 			es := make([]conciseEntry, len(entries))
 			for i, e := range entries {
-				es[i] = conciseEntry{Name: e.Name, Path: e.Path, IsDir: e.IsDir}
+				es[i] = conciseEntry{Name: e.Name, Path: e.Path, IsDir: e.IsDir, DeepLink: deepLinkFor(e)}
 			}
 			respEntries = es
 		} else {
 			es := make([]fullEntry, len(entries))
 			for i, e := range entries {
 				es[i] = fullEntry{
-					Name:    e.Name,
-					Path:    e.Path,
-					IsDir:   e.IsDir,
-					Size:    e.Size,
-					ModTime: e.ModTime.UTC().Format(time.RFC3339),
+					Name:     e.Name,
+					Path:     e.Path,
+					IsDir:    e.IsDir,
+					Size:     e.Size,
+					ModTime:  e.ModTime.UTC().Format(time.RFC3339),
+					DeepLink: deepLinkFor(e),
 				}
 			}
 			respEntries = es

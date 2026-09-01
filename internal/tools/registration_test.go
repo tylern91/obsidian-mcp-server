@@ -42,6 +42,8 @@ func TestAllSpecs(t *testing.T) {
 		"get_periodic_note":         true,
 		"get_recent_periodic_notes": false,
 		"audit_notes":               false,
+		"get_note_outline":          false,
+		"read_note_lines":           false,
 	}
 
 	deps := registrationTestDeps(t)

@@ -65,19 +65,25 @@ func searchNotesHandler(deps Deps) server.ToolHandlerFunc {
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		if results == nil {
-			results = []search.BM25Result{}
+
+		type bm25ResultWithLink struct {
+			search.BM25Result
+			DeepLink string `json:"deepLink,omitempty"`
+		}
+		linked := make([]bm25ResultWithLink, len(results))
+		for i, r := range results {
+			linked[i] = bm25ResultWithLink{BM25Result: r, DeepLink: obsidianDeepLink(deps.VaultName, r.Path)}
 		}
 
 		type searchNotesResponse struct {
-			Query   string              `json:"query"`
-			Results []search.BM25Result `json:"results"`
-			Total   int                 `json:"total"`
+			Query   string               `json:"query"`
+			Results []bm25ResultWithLink `json:"results"`
+			Total   int                  `json:"total"`
 		}
 		return response.ToolResult(req, deps.PrettyPrint, searchNotesResponse{
 			Query:   query,
-			Results: results,
-			Total:   len(results),
+			Results: linked,
+			Total:   len(linked),
 		})
 	}
 }
@@ -134,21 +140,27 @@ func searchRegexHandler(deps Deps) server.ToolHandlerFunc {
 			// structured response (e.g. invalid regex pattern).
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		if results == nil {
-			results = []search.RegexResult{}
+
+		type regexResultWithLink struct {
+			search.RegexResult
+			DeepLink string `json:"deepLink,omitempty"`
+		}
+		linked := make([]regexResultWithLink, len(results))
+		for i, r := range results {
+			linked[i] = regexResultWithLink{RegexResult: r, DeepLink: obsidianDeepLink(deps.VaultName, r.Path)}
 		}
 
 		type searchRegexResponse struct {
-			Pattern string               `json:"pattern"`
-			Scope   string               `json:"scope"`
-			Results []search.RegexResult `json:"results"`
-			Total   int                  `json:"total"`
+			Pattern string                `json:"pattern"`
+			Scope   string                `json:"scope"`
+			Results []regexResultWithLink `json:"results"`
+			Total   int                   `json:"total"`
 		}
 		return response.ToolResult(req, deps.PrettyPrint, searchRegexResponse{
 			Pattern: pattern,
 			Scope:   scope,
-			Results: results,
-			Total:   len(results),
+			Results: linked,
+			Total:   len(linked),
 		})
 	}
 }

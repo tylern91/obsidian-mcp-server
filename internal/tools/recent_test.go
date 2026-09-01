@@ -18,9 +18,10 @@ import (
 // recentResponse is the shape returned by get_recent_changes.
 type recentResponse struct {
 	Notes []struct {
-		Path    string  `json:"path"`
-		ModTime string  `json:"modTime"`
-		HeadOf  *string `json:"headOf,omitempty"`
+		Path     string  `json:"path"`
+		ModTime  string  `json:"modTime"`
+		HeadOf   *string `json:"headOf,omitempty"`
+		DeepLink string  `json:"deepLink,omitempty"`
 	} `json:"notes"`
 	Count int `json:"count"`
 }
@@ -43,6 +44,40 @@ func TestGetRecentChangesHandler_Basic(t *testing.T) {
 	for _, n := range resp.Notes {
 		_, parseErr := time.Parse(time.RFC3339, n.ModTime)
 		assert.NoError(t, parseErr, "modTime %q must be RFC3339", n.ModTime)
+	}
+}
+
+func TestGetRecentChangesHandler_DeepLink(t *testing.T) {
+	deps := testDeps(t)
+	deps.VaultName = "MyVault"
+	handler := tools.RecentChangesHandler(deps)
+
+	result, err := handler(context.Background(), makeRequest())
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+
+	text := extractText(t, result)
+	var resp recentResponse
+	require.NoError(t, json.Unmarshal([]byte(text), &resp))
+	require.NotEmpty(t, resp.Notes)
+	for _, n := range resp.Notes {
+		assert.NotEmpty(t, n.DeepLink, "note %q missing deepLink when VaultName is set", n.Path)
+	}
+}
+
+func TestGetRecentChangesHandler_NoDeepLinkWithoutVaultName(t *testing.T) {
+	deps := testDeps(t) // VaultName left empty
+	handler := tools.RecentChangesHandler(deps)
+
+	result, err := handler(context.Background(), makeRequest())
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+
+	text := extractText(t, result)
+	var resp recentResponse
+	require.NoError(t, json.Unmarshal([]byte(text), &resp))
+	for _, n := range resp.Notes {
+		assert.Empty(t, n.DeepLink, "note %q should not carry a deepLink when VaultName is unset", n.Path)
 	}
 }
 

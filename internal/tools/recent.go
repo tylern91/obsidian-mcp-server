@@ -87,16 +87,18 @@ func recentChangesHandler(deps Deps) server.ToolHandlerFunc {
 		}
 
 		type noteEntry struct {
-			Path    string  `json:"path"`
-			ModTime string  `json:"modTime"`
-			HeadOf  *string `json:"headOf,omitempty"`
+			Path     string  `json:"path"`
+			ModTime  string  `json:"modTime"`
+			HeadOf   *string `json:"headOf,omitempty"`
+			DeepLink string  `json:"deepLink,omitempty"`
 		}
 
 		notes := make([]noteEntry, 0, len(entries))
 		for _, e := range entries {
 			n := noteEntry{
-				Path:    e.rel,
-				ModTime: e.modTime.Format(time.RFC3339),
+				Path:     e.rel,
+				ModTime:  e.modTime.Format(time.RFC3339),
+				DeepLink: obsidianDeepLink(deps.VaultName, e.rel),
 			}
 			if summary {
 				data, readErr := os.ReadFile(e.abs)

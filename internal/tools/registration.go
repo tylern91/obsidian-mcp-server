@@ -36,6 +36,9 @@ type VaultService interface {
 	WalkNotes(ctx context.Context, fn func(rel, abs string) error) error
 	VaultStats(ctx context.Context, opts vault.VaultStatsOpts) (*vault.VaultStats, error)
 	Root() string
+
+	GetNoteOutline(ctx context.Context, path string) ([]vault.HeadingInfo, error)
+	ReadNoteLines(ctx context.Context, path string, startLine, lineCount int) (*vault.NoteLines, error)
 }
 
 // SearchService defines the search operations that tool handlers depend on.
@@ -57,10 +60,11 @@ type Deps struct {
 	Vault       VaultService
 	Search      SearchService
 	Periodic    PeriodicService
-	PrettyPrint bool // global default for JSON formatting
-	MaxBatch    int  // maximum number of files per batch operation
-	MaxResults  int  // maximum number of search results
-	ReadOnly    bool // when true, mutating tools are neither registered nor callable
+	PrettyPrint bool   // global default for JSON formatting
+	MaxBatch    int    // maximum number of files per batch operation
+	MaxResults  int    // maximum number of search results
+	ReadOnly    bool   // when true, mutating tools are neither registered nor callable
+	VaultName   string // vault name used to build obsidian:// deep links
 }
 
 // toolSpec bundles an MCP tool definition with its handler and whether it
@@ -106,6 +110,8 @@ func allSpecs(deps Deps) []toolSpec {
 		getPeriodicNoteSpec(deps),
 		getRecentPeriodicNotesSpec(deps),
 		auditNotesSpec(deps),
+		getNoteOutlineSpec(deps),
+		readNoteLinesSpec(deps),
 	}
 }
 
