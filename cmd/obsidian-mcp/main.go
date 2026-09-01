@@ -1,14 +1,18 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/tylern91/obsidian-mcp-server/internal/config"
+	"github.com/tylern91/obsidian-mcp-server/internal/httptransport"
 	"github.com/tylern91/obsidian-mcp-server/internal/periodic"
 	"github.com/tylern91/obsidian-mcp-server/internal/prompts"
 	"github.com/tylern91/obsidian-mcp-server/internal/resources"
@@ -99,5 +103,12 @@ func run(args []string) error {
 	})
 
 	slog.Info("registered capabilities")
+
+	if cfg.Transport == "http" {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		return httptransport.Run(ctx, s, cfg, logger)
+	}
+
 	return mcpserver.ServeStdio(s)
 }

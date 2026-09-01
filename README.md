@@ -19,6 +19,7 @@ A Go [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server for 
 - **Regex/glob search** — RE2 regex or filepath glob search across paths and content
 - **Path security** — 4-layer validation: lexical checks, ignore/extension filters, case-insensitive existence lookup, and symlink escape prevention
 - **Stdio transport** — works with any MCP client (Claude Code, Claude Desktop, etc.)
+- **Streamable HTTP transport** (optional) — TLS 1.3 + bearer token auth by default, loopback-only unless explicitly widened; see `--transport http` in Configuration and `SECURITY.md` § HTTP transport
 - **Zero Obsidian dependency** — operates on the vault directory directly
 - **Token counting** — responses include approximate token counts (cl100k_base)
 
@@ -233,6 +234,13 @@ Configuration follows **CLI flag > environment variable > default** precedence.
 | `--read-only` | `OBSIDIAN_READ_ONLY` | `false` | CLI: bare `--read-only` enables it. Env var: same `ParseBool` rules as `--pretty`. When enabled, mutating tools (`write_note`, `delete_note`, `move_note`, etc.) are not registered — they never appear in `tools/list`. |
 | `--trash-retention-days` | `OBSIDIAN_TRASH_RETENTION_DAYS` | `30` | Integer ≥ `0`. Non-integer or negative causes a startup error. `delete_note` moves notes to `.obsidian-mcp/trash/<timestamp>/<path>` by default instead of hard-deleting; entries older than this many days are pruned once at startup. |
 | `--vault-name` | `OBSIDIAN_VAULT_NAME` | the vault directory's basename | Used to build the `obsidian://open?vault=<name>&file=<path>` deep links in `search_notes`, `search_regex`, `list_directory`, and `get_recent_changes` results. Set explicitly if the vault directory's name doesn't match the name Obsidian shows for it. |
+| `--transport` | `OBSIDIAN_TRANSPORT` | `stdio` | `stdio` or `http`. `http` starts a TLS-secured Streamable HTTP listener instead of speaking MCP over stdio — see `SECURITY.md` § HTTP transport. |
+| `--http-bind` | `OBSIDIAN_HTTP_BIND` | `127.0.0.1` | Bind address for `--transport http`. Non-loopback addresses are refused unless `--allow-non-loopback` is also set. |
+| `--http-port` | `OBSIDIAN_HTTP_PORT` | `8443` | Port for `--transport http`. |
+| `--allow-non-loopback` | `OBSIDIAN_ALLOW_NON_LOOPBACK` | `false` | Allows `--http-bind` to a non-loopback address. Requires non-empty `--allowed-hosts` and `--allowed-origins` — an explicit, three-flag confirmation gate. |
+| `--allowed-hosts` | `OBSIDIAN_ALLOWED_HOSTS` | *(empty)* | Comma-separated Host header allowlist for `--transport http`. Required with `--allow-non-loopback`. |
+| `--allowed-origins` | `OBSIDIAN_ALLOWED_ORIGINS` | *(empty)* | Comma-separated Origin header allowlist for `--transport http`. Required with `--allow-non-loopback`. |
+| `--client-ca` | `OBSIDIAN_CLIENT_CA` | *(none)* | Path to a PEM file of trusted client CAs. Enables mandatory mutual TLS for `--transport http` — connections without a valid client certificate are rejected. |
 
 ### Examples
 
@@ -251,6 +259,10 @@ OBSIDIAN_PRETTY=true obsidian-mcp --vault ./my-vault
 
 # Verbose logging while debugging an integration
 OBSIDIAN_LOG_LEVEL=debug obsidian-mcp --vault ./my-vault
+
+# Streamable HTTP transport instead of stdio (loopback only, TLS + bearer
+# token auto-generated on first run — see SECURITY.md § HTTP transport)
+obsidian-mcp --vault ./my-vault --transport http --http-port 8443
 ```
 
 **Precedence in action**: with `OBSIDIAN_LOG_LEVEL=debug` exported, `obsidian-mcp --vault ... --log-level info` runs at `info` — the explicit flag wins. Unset flags inherit the env var; if neither is set, the default applies.
@@ -264,10 +276,13 @@ All paths are validated through a 4-layer security model before any filesystem o
 3. **Existence** — verifies the file exists with a case-insensitive fallback; rejects ambiguous matches
 4. **Symlink** — resolves symlinks and verifies the target remains inside the vault root
 
+The optional `--transport http` listener has its own security posture (TLS, bearer auth,
+loopback-only default, session binding) — see [`SECURITY.md`](SECURITY.md) § HTTP transport.
+
 ## Project Structure
 
 ```text
-cmd/obsidian-mcp/     Entry point, stdio transport
+cmd/obsidian-mcp/     Entry point, transport selection (stdio/http)
 internal/
   config/             CLI flags, env vars, defaults
   vault/              Path security, CRUD, frontmatter, tags, links, mutations
@@ -277,6 +292,7 @@ internal/
   periodic/           Periodic note resolution (Phase 4)
   prompts/            MCP Prompt templates
   resources/          MCP Resource registrations
+  httptransport/      Streamable HTTP transport: TLS, bearer auth, session binding
 testdata/vault/       Fixture vault for tests
 ```
 

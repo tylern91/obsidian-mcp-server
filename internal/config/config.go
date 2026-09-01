@@ -28,6 +28,14 @@ type Config struct {
 	ReadOnly           bool
 	TrashRetentionDays int
 	VaultName          string
+
+	Transport        string // "stdio" or "http"
+	HTTPBind         string
+	HTTPPort         int
+	AllowNonLoopback bool
+	AllowedHosts     []string
+	AllowedOrigins   []string
+	ClientCAPath     string // mTLS: path to a PEM file of trusted client CAs
 }
 
 // Load parses configuration from CLI flags, environment variables, and defaults.
@@ -47,6 +55,13 @@ func Load(args []string) (*Config, error) {
 	readOnly := fs.Bool("read-only", false, "disable all mutating tools (they are not registered, so clients never see them)")
 	trashRetentionDays := fs.Int("trash-retention-days", 30, "days to keep trashed notes (.obsidian-mcp/trash) before they are pruned at startup")
 	vaultName := fs.String("vault-name", "", "vault name used to build obsidian:// deep links in search/listing results (default: the vault directory's basename)")
+	transport := fs.String("transport", "stdio", "MCP transport: stdio or http")
+	httpBind := fs.String("http-bind", "127.0.0.1", "bind address for --transport http")
+	httpPort := fs.Int("http-port", 8443, "port for --transport http")
+	allowNonLoopback := fs.Bool("allow-non-loopback", false, "allow --http-bind to a non-loopback address (requires --allowed-hosts and --allowed-origins)")
+	allowedHosts := fs.String("allowed-hosts", "", "comma-separated Host header allowlist for --transport http (required with --allow-non-loopback)")
+	allowedOrigins := fs.String("allowed-origins", "", "comma-separated Origin header allowlist for --transport http (required with --allow-non-loopback)")
+	clientCA := fs.String("client-ca", "", "path to a PEM file of trusted client CAs; enables mandatory mTLS for --transport http")
 
 	if err := fs.Parse(args); err != nil {
 		return nil, err
@@ -74,6 +89,13 @@ func Load(args []string) (*Config, error) {
 		ReadOnly:           *readOnly,
 		TrashRetentionDays: *trashRetentionDays,
 		VaultName:          *vaultName,
+		Transport:          *transport,
+		HTTPBind:           *httpBind,
+		HTTPPort:           *httpPort,
+		AllowNonLoopback:   *allowNonLoopback,
+		AllowedHosts:       splitTrimmed(*allowedHosts),
+		AllowedOrigins:     splitTrimmed(*allowedOrigins),
+		ClientCAPath:       *clientCA,
 	}
 
 	// Apply environment variable overrides for flags that were NOT explicitly set.
@@ -97,6 +119,17 @@ func Load(args []string) (*Config, error) {
 		return nil, err
 	}
 	envString(explicitFlags, "vault-name", "OBSIDIAN_VAULT_NAME", &cfg.VaultName)
+	envString(explicitFlags, "transport", "OBSIDIAN_TRANSPORT", &cfg.Transport)
+	envString(explicitFlags, "http-bind", "OBSIDIAN_HTTP_BIND", &cfg.HTTPBind)
+	if err := envInt(explicitFlags, "http-port", "OBSIDIAN_HTTP_PORT", &cfg.HTTPPort); err != nil {
+		return nil, err
+	}
+	if err := envBool(explicitFlags, "allow-non-loopback", "OBSIDIAN_ALLOW_NON_LOOPBACK", &cfg.AllowNonLoopback); err != nil {
+		return nil, err
+	}
+	envStringSlice(explicitFlags, "allowed-hosts", "OBSIDIAN_ALLOWED_HOSTS", &cfg.AllowedHosts)
+	envStringSlice(explicitFlags, "allowed-origins", "OBSIDIAN_ALLOWED_ORIGINS", &cfg.AllowedOrigins)
+	envString(explicitFlags, "client-ca", "OBSIDIAN_CLIENT_CA", &cfg.ClientCAPath)
 
 	// Normalize LogLevel: default to "warn" if unrecognized, and record the bad value.
 	switch cfg.LogLevel {
@@ -135,6 +168,27 @@ func Load(args []string) (*Config, error) {
 
 	if cfg.TrashRetentionDays < 0 {
 		return nil, fmt.Errorf("trash-retention-days must be at least 0, got %d", cfg.TrashRetentionDays)
+	}
+
+	switch cfg.Transport {
+	case "stdio", "http":
+		// valid
+	default:
+		return nil, fmt.Errorf("transport must be \"stdio\" or \"http\", got %q", cfg.Transport)
+	}
+
+	if cfg.Transport == "http" {
+		if cfg.HTTPPort < 1 || cfg.HTTPPort > 65535 {
+			return nil, fmt.Errorf("http-port must be between 1 and 65535, got %d", cfg.HTTPPort)
+		}
+		if cfg.AllowNonLoopback {
+			if len(cfg.AllowedHosts) == 0 {
+				return nil, fmt.Errorf("--allow-non-loopback requires --allowed-hosts to be set")
+			}
+			if len(cfg.AllowedOrigins) == 0 {
+				return nil, fmt.Errorf("--allow-non-loopback requires --allowed-origins to be set")
+			}
+		}
 	}
 
 	return cfg, nil
