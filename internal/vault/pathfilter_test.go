@@ -9,6 +9,36 @@ import (
 )
 
 // ----------------------------------------------------------------------------
+// IsInternalState
+// ----------------------------------------------------------------------------
+
+func TestIsInternalState(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		path string
+		want bool
+	}{
+		{name: "top-level trash path", path: ".obsidian-mcp/trash/20260101T000000.000000000/Notes/simple.md", want: true},
+		{name: "top-level directory itself", path: ".obsidian-mcp", want: true},
+		{name: "unrelated top-level directory", path: "Notes/simple.md", want: false},
+		{name: "similar-but-different prefix is not a match", path: ".obsidian-mcp-backup/x.md", want: false},
+		{name: "nested occurrence of the name is not top-level", path: "Notes/.obsidian-mcp/x.md", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := vault.IsInternalState(tt.path)
+			if got != tt.want {
+				t.Errorf("IsInternalState(%q) = %v, want %v", tt.path, got, tt.want)
+			}
+		})
+	}
+}
+
+// ----------------------------------------------------------------------------
 // IsIgnored
 // ----------------------------------------------------------------------------
 

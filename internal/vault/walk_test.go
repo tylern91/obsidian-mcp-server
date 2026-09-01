@@ -132,4 +132,24 @@ func TestService_WalkNotes(t *testing.T) {
 		require.Error(t, err)
 		assert.ErrorIs(t, err, context.Canceled)
 	})
+
+	t.Run("trash entries are never visited, even with no filter configured", func(t *testing.T) {
+		t.Parallel()
+
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "a.md"), []byte("a"), 0644))
+		trashFile := filepath.Join(dir, ".obsidian-mcp", "trash", "20260101T000000.000000000", "Notes", "deleted.md")
+		require.NoError(t, os.MkdirAll(filepath.Dir(trashFile), 0755))
+		require.NoError(t, os.WriteFile(trashFile, []byte("gone"), 0644))
+
+		svc := vault.New(dir, nil)
+
+		var visited []string
+		err := svc.WalkNotes(ctx, func(rel, abs string) error {
+			visited = append(visited, rel)
+			return nil
+		})
+		require.NoError(t, err)
+		assert.Equal(t, []string{"a.md"}, visited, "trash contents must never surface in a walk")
+	})
 }

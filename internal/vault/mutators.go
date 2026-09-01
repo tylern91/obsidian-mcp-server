@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // PatchOp describes a heading-anchored patch operation.
@@ -126,9 +127,12 @@ func splitLines(content string) []string {
 	return parts
 }
 
-// DeleteNote deletes a note from the vault.
-// confirm must equal path exactly, otherwise ErrConfirmMismatch is returned.
-func (s *Service) DeleteNote(ctx context.Context, path, confirm string) error {
+// DeleteNote removes a note from the vault. By default it moves the note to
+// the trash (.obsidian-mcp/trash/<timestamp>/<path>, preserving vault-relative
+// structure) so an accidental delete is recoverable; permanent=true hard-deletes
+// instead. confirm must equal path exactly, otherwise ErrConfirmMismatch is
+// returned — this guard applies regardless of permanent.
+func (s *Service) DeleteNote(ctx context.Context, path, confirm string, permanent bool) error {
 	if err := ctx.Err(); err != nil {
 		return &PathError{Op: "delete", Path: path, Err: err}
 	}
@@ -137,7 +141,7 @@ func (s *Service) DeleteNote(ctx context.Context, path, confirm string) error {
 		return &PathError{Op: "delete", Path: path, Err: ErrConfirmMismatch}
 	}
 
-	_, absPath, err := s.sanitizePath("delete", path)
+	cleaned, absPath, err := s.sanitizePath("delete", path)
 	if err != nil {
 		return err
 	}
@@ -149,13 +153,80 @@ func (s *Service) DeleteNote(ctx context.Context, path, confirm string) error {
 		return err
 	}
 
-	if err := os.Remove(absPath); err != nil {
+	if permanent {
+		if err := os.Remove(absPath); err != nil {
+			if os.IsNotExist(err) {
+				return &PathError{Op: "delete", Path: path, Err: ErrNotFound}
+			}
+			return &PathError{Op: "delete", Path: path, Err: err}
+		}
+		return nil
+	}
+
+	trashDst := filepath.Join(s.root, internalStateDir, "trash", trashTimestamp(), cleaned)
+	if err := os.MkdirAll(filepath.Dir(trashDst), 0755); err != nil {
+		return &PathError{Op: "delete", Path: path, Err: err}
+	}
+	if err := os.Rename(absPath, trashDst); err != nil {
 		if os.IsNotExist(err) {
 			return &PathError{Op: "delete", Path: path, Err: ErrNotFound}
 		}
 		return &PathError{Op: "delete", Path: path, Err: err}
 	}
 	return nil
+}
+
+// trashTimestamp returns a filesystem-safe, lexically-sortable timestamp for
+// a new trash entry directory: UTC, nanosecond precision, no colons (so the
+// path is valid on Windows too).
+func trashTimestamp() string {
+	return time.Now().UTC().Format(trashTimestampLayout)
+}
+
+// trashTimestampLayout is shared by trashTimestamp (format) and PruneTrash
+// (parse) — a trash entry directory name is exactly this layout.
+const trashTimestampLayout = "20060102T150405.000000000"
+
+// PruneTrash removes trash entry directories older than retentionDays,
+// relative to now. Entries are the timestamp-named directories DeleteNote
+// creates directly under .obsidian-mcp/trash; a directory name that doesn't
+// parse as trashTimestampLayout is left alone rather than guessed at, since
+// it wasn't created by this code. Returns the number of entries removed.
+// Intended to run once at startup (best-effort — see main.go), not on a
+// timer, since a long-lived MCP server process is the exception rather than
+// the norm for this transport.
+func (s *Service) PruneTrash(now time.Time, retentionDays int) (int, error) {
+	trashRoot := filepath.Join(s.root, internalStateDir, "trash")
+	entries, err := os.ReadDir(trashRoot)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, &PathError{Op: "prune-trash", Path: trashRoot, Err: err}
+	}
+
+	cutoff := now.Add(-time.Duration(retentionDays) * 24 * time.Hour)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	removed := 0
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		ts, err := time.Parse(trashTimestampLayout, entry.Name())
+		if err != nil {
+			continue
+		}
+		if ts.Before(cutoff) {
+			if err := os.RemoveAll(filepath.Join(trashRoot, entry.Name())); err != nil {
+				return removed, &PathError{Op: "prune-trash", Path: entry.Name(), Err: err}
+			}
+			removed++
+		}
+	}
+	return removed, nil
 }
 
 // MoveNote moves a note from src to dst within the vault.

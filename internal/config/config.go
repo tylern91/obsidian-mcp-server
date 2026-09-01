@@ -16,14 +16,16 @@ var ErrVersionRequested = errors.New("version requested")
 
 // Config holds all configuration for the obsidian-mcp-server.
 type Config struct {
-	VaultPath       string
-	Extensions      []string
-	IgnorePatterns  []string
-	PrettyPrint     bool
-	MaxBatch        int
-	MaxResults      int
-	LogLevel        string
-	InvalidLogLevel string // non-empty when an unrecognized log level was given
+	VaultPath          string
+	Extensions         []string
+	IgnorePatterns     []string
+	PrettyPrint        bool
+	MaxBatch           int
+	MaxResults         int
+	LogLevel           string
+	InvalidLogLevel    string // non-empty when an unrecognized log level was given
+	ReadOnly           bool
+	TrashRetentionDays int
 }
 
 // Load parses configuration from CLI flags, environment variables, and defaults.
@@ -40,6 +42,8 @@ func Load(args []string) (*Config, error) {
 	maxBatch := fs.Int("max-batch", 10, "maximum number of files per batch operation")
 	maxResults := fs.Int("max-results", 20, "maximum number of search results")
 	logLevel := fs.String("log-level", "warn", "log level: debug, info, warn, error")
+	readOnly := fs.Bool("read-only", false, "disable all mutating tools (they are not registered, so clients never see them)")
+	trashRetentionDays := fs.Int("trash-retention-days", 30, "days to keep trashed notes (.obsidian-mcp/trash) before they are pruned at startup")
 
 	if err := fs.Parse(args); err != nil {
 		return nil, err
@@ -57,13 +61,15 @@ func Load(args []string) (*Config, error) {
 	})
 
 	cfg := &Config{
-		VaultPath:      *vaultPath,
-		Extensions:     splitTrimmed(*extensions),
-		IgnorePatterns: splitTrimmed(*ignorePatterns),
-		PrettyPrint:    *prettyPrint,
-		MaxBatch:       *maxBatch,
-		MaxResults:     *maxResults,
-		LogLevel:       *logLevel,
+		VaultPath:          *vaultPath,
+		Extensions:         splitTrimmed(*extensions),
+		IgnorePatterns:     splitTrimmed(*ignorePatterns),
+		PrettyPrint:        *prettyPrint,
+		MaxBatch:           *maxBatch,
+		MaxResults:         *maxResults,
+		LogLevel:           *logLevel,
+		ReadOnly:           *readOnly,
+		TrashRetentionDays: *trashRetentionDays,
 	}
 
 	// Apply environment variable overrides for flags that were NOT explicitly set.
@@ -80,6 +86,12 @@ func Load(args []string) (*Config, error) {
 		return nil, err
 	}
 	envString(explicitFlags, "log-level", "OBSIDIAN_LOG_LEVEL", &cfg.LogLevel)
+	if err := envBool(explicitFlags, "read-only", "OBSIDIAN_READ_ONLY", &cfg.ReadOnly); err != nil {
+		return nil, err
+	}
+	if err := envInt(explicitFlags, "trash-retention-days", "OBSIDIAN_TRASH_RETENTION_DAYS", &cfg.TrashRetentionDays); err != nil {
+		return nil, err
+	}
 
 	// Normalize LogLevel: default to "warn" if unrecognized, and record the bad value.
 	switch cfg.LogLevel {
@@ -109,6 +121,10 @@ func Load(args []string) (*Config, error) {
 
 	if cfg.MaxResults < 1 {
 		return nil, fmt.Errorf("max-results must be at least 1, got %d", cfg.MaxResults)
+	}
+
+	if cfg.TrashRetentionDays < 0 {
+		return nil, fmt.Errorf("trash-retention-days must be at least 0, got %d", cfg.TrashRetentionDays)
 	}
 
 	return cfg, nil

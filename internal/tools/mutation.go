@@ -82,7 +82,7 @@ func patchNoteHandler(deps Deps) server.ToolHandlerFunc {
 
 func deleteNoteSpec(deps Deps) toolSpec {
 	tool := mcp.NewTool("delete_note",
-		mcp.WithDescription("Permanently delete a note from the vault. Requires confirm to match path exactly as a safety guard."),
+		mcp.WithDescription("Delete a note from the vault. By default it moves the note to .obsidian-mcp/trash (recoverable); pass permanent=true to hard-delete instead. Requires confirm to match path exactly as a safety guard, regardless of permanent."),
 		mcp.WithString("path",
 			mcp.Required(),
 			mcp.Description("Path to the note relative to the vault root"),
@@ -90,6 +90,9 @@ func deleteNoteSpec(deps Deps) toolSpec {
 		mcp.WithString("confirm",
 			mcp.Required(),
 			mcp.Description("Must match path exactly to confirm the deletion"),
+		),
+		mcp.WithBoolean("permanent",
+			mcp.Description("Hard-delete instead of moving to trash (default: false)"),
 		),
 		mcp.WithBoolean("prettyPrint",
 			mcp.Description("Format the JSON response with indentation (default: false)"),
@@ -110,16 +113,18 @@ func deleteNoteHandler(deps Deps) server.ToolHandlerFunc {
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
+		permanent := req.GetBool("permanent", false)
 
-		if err := deps.Vault.DeleteNote(ctx, path, confirm); err != nil {
+		if err := deps.Vault.DeleteNote(ctx, path, confirm, permanent); err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
 		type deleteResponse struct {
-			Success bool   `json:"success"`
-			Path    string `json:"path"`
+			Success   bool   `json:"success"`
+			Path      string `json:"path"`
+			Permanent bool   `json:"permanent"`
 		}
-		return response.ToolResult(req, deps.PrettyPrint, deleteResponse{Success: true, Path: path})
+		return response.ToolResult(req, deps.PrettyPrint, deleteResponse{Success: true, Path: path, Permanent: permanent})
 	}
 }
 

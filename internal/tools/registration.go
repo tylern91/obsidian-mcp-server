@@ -28,7 +28,7 @@ type VaultService interface {
 	GetBacklinks(ctx context.Context, targetPath string) ([]vault.Backlink, error)
 
 	PatchNote(ctx context.Context, path string, p vault.PatchOp) error
-	DeleteNote(ctx context.Context, path, confirm string) error
+	DeleteNote(ctx context.Context, path, confirm string, permanent bool) error
 	MoveNote(ctx context.Context, src, dst, confirm string) error
 
 	StatNote(ctx context.Context, path string) (*vault.NoteInfo, error)
@@ -60,6 +60,7 @@ type Deps struct {
 	PrettyPrint bool // global default for JSON formatting
 	MaxBatch    int  // maximum number of files per batch operation
 	MaxResults  int  // maximum number of search results
+	ReadOnly    bool // when true, mutating tools are neither registered nor callable
 }
 
 // toolSpec bundles an MCP tool definition with its handler and whether it
@@ -108,9 +109,34 @@ func allSpecs(deps Deps) []toolSpec {
 	}
 }
 
-// RegisterAll registers all MCP tools with the server.
+// RegisterAll registers all MCP tools with the server. In read-only mode
+// (deps.ReadOnly), mutating tools are omitted entirely — they never appear
+// in tools/list, so a client (or the model driving it) can't even attempt
+// one. See readOnlyGuard for the second layer of that defense.
 func RegisterAll(s *server.MCPServer, deps Deps) {
 	for _, spec := range allSpecs(deps) {
-		s.AddTool(spec.Tool, spec.Handler)
+		handler := spec.Handler
+		if spec.Mutating {
+			handler = readOnlyGuard(deps.ReadOnly, handler)
+			if deps.ReadOnly {
+				continue
+			}
+		}
+		s.AddTool(spec.Tool, handler)
+	}
+}
+
+// readOnlyGuard wraps a mutating tool's handler so it refuses to run when
+// the server is in read-only mode. RegisterAll already omits mutating tools
+// from registration in that mode; this wrap exists so the rejection is
+// derived from toolSpec.Mutating in this one place rather than hand-written
+// per handler, and holds even if a future change to RegisterAll's loop
+// stops omitting the tool.
+func readOnlyGuard(readOnly bool, handler server.ToolHandlerFunc) server.ToolHandlerFunc {
+	if !readOnly {
+		return handler
+	}
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return mcp.NewToolResultError("server is running in --read-only mode"), nil
 	}
 }

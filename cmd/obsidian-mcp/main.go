@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"time"
 
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/tylern91/obsidian-mcp-server/internal/config"
@@ -56,6 +57,19 @@ func run(args []string) error {
 	searchSvc := search.New(vaultSvc)
 	periodicSvc := periodic.New(cfg.VaultPath)
 
+	// Best-effort: an MCP server is typically short-lived (one process per
+	// client session), so pruning once at startup is enough — a stuck prune
+	// must never block the server from starting.
+	if removed, err := vaultSvc.PruneTrash(time.Now(), cfg.TrashRetentionDays); err != nil {
+		slog.Warn("trash prune failed", "error", err)
+	} else if removed > 0 {
+		slog.Info("pruned expired trash entries", "count", removed, "retentionDays", cfg.TrashRetentionDays)
+	}
+
+	if cfg.ReadOnly {
+		slog.Info("read-only mode active — mutating tools are not registered")
+	}
+
 	s := mcpserver.NewMCPServer(
 		"obsidian-mcp",
 		version.Version,
@@ -71,6 +85,7 @@ func run(args []string) error {
 		PrettyPrint: cfg.PrettyPrint,
 		MaxBatch:    cfg.MaxBatch,
 		MaxResults:  cfg.MaxResults,
+		ReadOnly:    cfg.ReadOnly,
 	})
 	prompts.RegisterAll(s, prompts.Deps{
 		Vault:    vaultSvc,

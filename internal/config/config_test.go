@@ -31,6 +31,12 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.LogLevel != "warn" {
 		t.Errorf("LogLevel = %q, want %q", cfg.LogLevel, "warn")
 	}
+	if cfg.ReadOnly != false {
+		t.Errorf("ReadOnly = %v, want false", cfg.ReadOnly)
+	}
+	if cfg.TrashRetentionDays != 30 {
+		t.Errorf("TrashRetentionDays = %d, want 30", cfg.TrashRetentionDays)
+	}
 	wantExt := []string{".md", ".markdown", ".txt", ".canvas"}
 	if !slicesEqual(cfg.Extensions, wantExt) {
 		t.Errorf("Extensions = %v, want %v", cfg.Extensions, wantExt)
@@ -72,6 +78,50 @@ func TestLoad_CLIFlagOverridesDefaults(t *testing.T) {
 	}
 	if !slicesEqual(cfg.IgnorePatterns, []string{".git"}) {
 		t.Errorf("IgnorePatterns = %v, want [.git]", cfg.IgnorePatterns)
+	}
+}
+
+func TestLoad_ReadOnlyAndTrashRetentionFlags(t *testing.T) {
+	vault := t.TempDir()
+	cfg, err := config.Load([]string{
+		"--vault", vault,
+		"--read-only",
+		"--trash-retention-days", "7",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.ReadOnly != true {
+		t.Errorf("ReadOnly = %v, want true", cfg.ReadOnly)
+	}
+	if cfg.TrashRetentionDays != 7 {
+		t.Errorf("TrashRetentionDays = %d, want 7", cfg.TrashRetentionDays)
+	}
+}
+
+func TestLoad_ReadOnlyAndTrashRetentionEnvVars(t *testing.T) {
+	vault := t.TempDir()
+	t.Setenv("OBSIDIAN_VAULT_PATH", vault)
+	t.Setenv("OBSIDIAN_READ_ONLY", "true")
+	t.Setenv("OBSIDIAN_TRASH_RETENTION_DAYS", "3")
+
+	cfg, err := config.Load([]string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.ReadOnly != true {
+		t.Errorf("ReadOnly = %v, want true", cfg.ReadOnly)
+	}
+	if cfg.TrashRetentionDays != 3 {
+		t.Errorf("TrashRetentionDays = %d, want 3", cfg.TrashRetentionDays)
+	}
+}
+
+func TestLoad_ErrorTrashRetentionDaysNegative(t *testing.T) {
+	vault := t.TempDir()
+	_, err := config.Load([]string{"--vault", vault, "--trash-retention-days", "-1"})
+	if err == nil {
+		t.Fatal("expected error for negative trash-retention-days, got nil")
 	}
 }
 

@@ -1,8 +1,11 @@
 package tools
 
 import (
+	"context"
 	"testing"
 
+	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
 	"github.com/tylern91/obsidian-mcp-server/internal/vault"
 )
 
@@ -77,6 +80,75 @@ func TestAllSpecs(t *testing.T) {
 		if !seen[name] {
 			t.Errorf("expected tool %q missing from allSpecs", name)
 		}
+	}
+}
+
+func TestRegisterAll_ReadOnly_OmitsMutatingTools(t *testing.T) {
+	deps := registrationTestDeps(t)
+	deps.ReadOnly = true
+
+	s := server.NewMCPServer("test", "0.0.0")
+	RegisterAll(s, deps)
+
+	registered := s.ListTools()
+	for _, spec := range allSpecs(deps) {
+		_, ok := registered[spec.Tool.Name]
+		if spec.Mutating && ok {
+			t.Errorf("%s: mutating tool must not be registered in read-only mode", spec.Tool.Name)
+		}
+		if !spec.Mutating && !ok {
+			t.Errorf("%s: read-only tool should still be registered in read-only mode", spec.Tool.Name)
+		}
+	}
+}
+
+func TestRegisterAll_NotReadOnly_RegistersEverything(t *testing.T) {
+	deps := registrationTestDeps(t)
+
+	s := server.NewMCPServer("test", "0.0.0")
+	RegisterAll(s, deps)
+
+	registered := s.ListTools()
+	for _, spec := range allSpecs(deps) {
+		if _, ok := registered[spec.Tool.Name]; !ok {
+			t.Errorf("%s: expected to be registered when not read-only", spec.Tool.Name)
+		}
+	}
+}
+
+func TestReadOnlyGuard_RejectsWhenReadOnly(t *testing.T) {
+	called := false
+	inner := func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		called = true
+		return mcp.NewToolResultText("should not run"), nil
+	}
+
+	guarded := readOnlyGuard(true, inner)
+	result, err := guarded(context.Background(), mcp.CallToolRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Error("expected an error result when read-only")
+	}
+	if called {
+		t.Error("inner handler must not run when read-only")
+	}
+}
+
+func TestReadOnlyGuard_PassesThroughWhenNotReadOnly(t *testing.T) {
+	called := false
+	inner := func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		called = true
+		return mcp.NewToolResultText("ran"), nil
+	}
+
+	guarded := readOnlyGuard(false, inner)
+	if _, err := guarded(context.Background(), mcp.CallToolRequest{}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !called {
+		t.Error("inner handler should run when not read-only")
 	}
 }
 
