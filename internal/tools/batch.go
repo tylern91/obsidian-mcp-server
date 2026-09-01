@@ -61,6 +61,7 @@ func readMultipleNotesHandler(deps Deps) server.ToolHandlerFunc {
 			Size       int64   `json:"size,omitempty"`
 			ModTime    string  `json:"modTime,omitempty"`
 			TokenCount int     `json:"tokenCount,omitempty"`
+			Etag       string  `json:"etag,omitempty"`
 			Content    *string `json:"content,omitempty"`
 			HeadOf     *string `json:"headOf,omitempty"`
 			Error      *string `json:"error,omitempty"`
@@ -80,6 +81,7 @@ func readMultipleNotesHandler(deps Deps) server.ToolHandlerFunc {
 				Size:       note.Size,
 				ModTime:    note.ModTime.UTC().Format(time.RFC3339),
 				TokenCount: response.CountTokens(note.Content),
+				Etag:       note.Etag,
 			}
 			if summary {
 				head := response.HeadRunes(note.Content, headChars)
@@ -141,6 +143,7 @@ func getNotesInfoHandler(deps Deps) server.ToolHandlerFunc {
 			Title     string  `json:"title,omitempty"`
 			TagCount  int     `json:"tagCount"`
 			LinkCount int     `json:"linkCount"`
+			Etag      string  `json:"etag,omitempty"`
 			Error     *string `json:"error,omitempty"`
 		}
 
@@ -160,6 +163,7 @@ func getNotesInfoHandler(deps Deps) server.ToolHandlerFunc {
 				Title:     info.Title,
 				TagCount:  info.TagCount,
 				LinkCount: info.LinkCount,
+				Etag:      info.Etag,
 			})
 		}
 

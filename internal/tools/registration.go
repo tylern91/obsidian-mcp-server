@@ -14,22 +14,22 @@ import (
 // Satisfied by *vault.Service; enables mock-based unit testing.
 type VaultService interface {
 	ReadNote(ctx context.Context, path string) (*vault.Note, error)
-	WriteNote(ctx context.Context, path, content string, mode vault.WriteMode) error
+	WriteNote(ctx context.Context, path, content string, mode vault.WriteMode, opts ...vault.WriteOpt) error
 	ListDirectory(ctx context.Context, path string) ([]vault.DirEntry, error)
 
 	GetFrontmatter(ctx context.Context, path string) (fm map[string]any, body string, err error)
-	UpdateFrontmatter(ctx context.Context, path string, updates map[string]any, removeKeys []string) error
+	UpdateFrontmatter(ctx context.Context, path string, updates map[string]any, removeKeys []string, opts ...vault.WriteOpt) error
 
 	ListTags(ctx context.Context, path string) ([]string, error)
-	AddTag(ctx context.Context, path, tag, location string) error
-	RemoveTag(ctx context.Context, path, tag string) error
+	AddTag(ctx context.Context, path, tag, location string, opts ...vault.WriteOpt) error
+	RemoveTag(ctx context.Context, path, tag string, opts ...vault.WriteOpt) error
 	AggregateTags(ctx context.Context) (map[string]int, error)
 
 	GetBacklinks(ctx context.Context, targetPath string) ([]vault.Backlink, error)
 
-	PatchNote(ctx context.Context, path string, p vault.PatchOp) error
-	DeleteNote(ctx context.Context, path, confirm string, permanent bool) error
-	MoveNote(ctx context.Context, src, dst, confirm string, updateLinks, dryRun bool) (*vault.MoveResult, error)
+	PatchNote(ctx context.Context, path string, p vault.PatchOp, opts ...vault.WriteOpt) error
+	DeleteNote(ctx context.Context, path, confirm string, permanent bool, opts ...vault.WriteOpt) error
+	MoveNote(ctx context.Context, src, dst, confirm string, updateLinks, dryRun bool, opts ...vault.WriteOpt) (*vault.MoveResult, error)
 	RenameTag(ctx context.Context, oldTag, newTag string) ([]vault.TagRename, error)
 	ReplaceInNote(ctx context.Context, path, pattern, replacement string, isRegex bool, maxOccurrences int) (*vault.ReplaceResult, error)
 

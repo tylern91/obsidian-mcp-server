@@ -29,6 +29,9 @@ func patchNoteSpec(deps Deps) toolSpec {
 			mcp.Required(),
 			mcp.Description("Content to insert or use as the replacement body"),
 		),
+		mcp.WithString("if_match",
+			mcp.Description("Optional etag from a prior read; the patch fails with REVISION_CONFLICT if the note's current content does not match"),
+		),
 		mcp.WithBoolean("prettyPrint",
 			mcp.Description("Format the JSON response with indentation (default: false)"),
 		),
@@ -56,13 +59,14 @@ func patchNoteHandler(deps Deps) server.ToolHandlerFunc {
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
+		ifMatch := req.GetString("if_match", "")
 
 		if err := deps.Vault.PatchNote(ctx, path, vault.PatchOp{
 			Heading:  heading,
 			Position: position,
 			Content:  content,
-		}); err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		}, ifMatchOpt(ifMatch)...); err != nil {
+			return vaultWriteError(err), nil
 		}
 
 		type patchResponse struct {
@@ -94,6 +98,9 @@ func deleteNoteSpec(deps Deps) toolSpec {
 		mcp.WithBoolean("permanent",
 			mcp.Description("Hard-delete instead of moving to trash (default: false)"),
 		),
+		mcp.WithString("if_match",
+			mcp.Description("Optional etag from a prior read; the delete fails with REVISION_CONFLICT if the note's current content does not match"),
+		),
 		mcp.WithBoolean("prettyPrint",
 			mcp.Description("Format the JSON response with indentation (default: false)"),
 		),
@@ -114,9 +121,10 @@ func deleteNoteHandler(deps Deps) server.ToolHandlerFunc {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		permanent := req.GetBool("permanent", false)
+		ifMatch := req.GetString("if_match", "")
 
-		if err := deps.Vault.DeleteNote(ctx, path, confirm, permanent); err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		if err := deps.Vault.DeleteNote(ctx, path, confirm, permanent, ifMatchOpt(ifMatch)...); err != nil {
+			return vaultWriteError(err), nil
 		}
 
 		type deleteResponse struct {
@@ -149,6 +157,9 @@ func moveNoteSpec(deps Deps) toolSpec {
 		mcp.WithBoolean("dryRun",
 			mcp.Description("Preview only — no file is moved and no links are rewritten (default: false)"),
 		),
+		mcp.WithString("if_match",
+			mcp.Description("Optional etag from a prior read; the move fails with REVISION_CONFLICT if src's current content does not match. Not enforced when dryRun is true."),
+		),
 		mcp.WithBoolean("prettyPrint",
 			mcp.Description("Format the JSON response with indentation (default: false)"),
 		),
@@ -174,10 +185,11 @@ func moveNoteHandler(deps Deps) server.ToolHandlerFunc {
 		}
 		updateLinks := req.GetBool("updateLinks", true)
 		dryRun := req.GetBool("dryRun", false)
+		ifMatch := req.GetString("if_match", "")
 
-		result, err := deps.Vault.MoveNote(ctx, src, dst, confirm, updateLinks, dryRun)
+		result, err := deps.Vault.MoveNote(ctx, src, dst, confirm, updateLinks, dryRun, ifMatchOpt(ifMatch)...)
 		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+			return vaultWriteError(err), nil
 		}
 
 		type linkRewriteEntry struct {

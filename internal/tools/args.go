@@ -2,9 +2,11 @@ package tools
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/tylern91/obsidian-mcp-server/internal/vault"
 )
 
 // optStringSlice unmarshals a string tool argument as a JSON array into a
@@ -59,4 +61,23 @@ func clampBatch(paths []string, max int) ([]string, bool) {
 		return paths[:max], true
 	}
 	return paths, false
+}
+
+// ifMatchOpt returns a vault.WriteOpt slice conditioning the call on
+// ifMatch, or nil if ifMatch is empty.
+func ifMatchOpt(ifMatch string) []vault.WriteOpt {
+	if ifMatch == "" {
+		return nil
+	}
+	return []vault.WriteOpt{vault.WithIfMatch(ifMatch)}
+}
+
+// vaultWriteError translates a vault write error into a tool result,
+// surfacing a stable REVISION_CONFLICT code for an if_match mismatch rather
+// than letting the raw Go error reach the caller as a protocol error.
+func vaultWriteError(err error) *mcp.CallToolResult {
+	if errors.Is(err, vault.ErrRevisionConflict) {
+		return mcp.NewToolResultError("REVISION_CONFLICT: " + err.Error())
+	}
+	return mcp.NewToolResultError(err.Error())
 }

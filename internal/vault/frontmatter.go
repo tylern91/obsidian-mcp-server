@@ -108,10 +108,12 @@ func (s *Service) GetFrontmatter(ctx context.Context, path string) (fm map[strin
 //
 // Returns ErrNotFound when the file does not exist.
 // Returns ErrSymlinkEscape when the path resolves outside the vault boundary.
-func (s *Service) UpdateFrontmatter(ctx context.Context, path string, updates map[string]any, removeKeys []string) error {
+func (s *Service) UpdateFrontmatter(ctx context.Context, path string, updates map[string]any, removeKeys []string, opts ...WriteOpt) error {
 	if err := ctx.Err(); err != nil {
 		return &PathError{Op: "update_frontmatter", Path: path, Err: err}
 	}
+
+	o := applyWriteOpts(opts)
 
 	_, absPath, err := s.sanitizePath("update_frontmatter", path)
 	if err != nil {
@@ -132,6 +134,10 @@ func (s *Service) UpdateFrontmatter(ctx context.Context, path string, updates ma
 	data, _, err := readNoteBytes(absPath)
 	if err != nil {
 		return &PathError{Op: "update_frontmatter", Path: path, Err: err}
+	}
+
+	if err := checkIfMatch("update_frontmatter", path, data, o); err != nil {
+		return err
 	}
 
 	content := string(data)

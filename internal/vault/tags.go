@@ -160,7 +160,7 @@ func (s *Service) ListTags(ctx context.Context, path string) ([]string, error) {
 //
 // The method is atomic: it locks the service mutex for the entire
 // read-modify-write cycle.
-func (s *Service) AddTag(ctx context.Context, path, tag, location string) error {
+func (s *Service) AddTag(ctx context.Context, path, tag, location string, opts ...WriteOpt) error {
 	if err := ctx.Err(); err != nil {
 		return &PathError{Op: "add_tag", Path: path, Err: err}
 	}
@@ -171,6 +171,8 @@ func (s *Service) AddTag(ctx context.Context, path, tag, location string) error 
 	if location != "frontmatter" && location != "inline" {
 		return &PathError{Op: "add_tag", Path: path, Err: fmt.Errorf("invalid location %q: must be frontmatter or inline", location)}
 	}
+
+	o := applyWriteOpts(opts)
 
 	_, absPath, err := s.sanitizePath("add_tag", path)
 	if err != nil {
@@ -191,6 +193,10 @@ func (s *Service) AddTag(ctx context.Context, path, tag, location string) error 
 	data, _, err := readNoteBytes(absPath)
 	if err != nil {
 		return &PathError{Op: "add_tag", Path: path, Err: err}
+	}
+
+	if err := checkIfMatch("add_tag", path, data, o); err != nil {
+		return err
 	}
 
 	content := string(data)
@@ -311,10 +317,12 @@ func addTagToFrontmatter(mapping *yaml.Node, tag, body string) (string, error) {
 // only inside a code block is NOT removed from the prose (because it was never
 // counted as a prose tag). The body is processed line-by-line using a
 // fence-state-machine so that lines inside fences are written back unchanged.
-func (s *Service) RemoveTag(ctx context.Context, path, tag string) error {
+func (s *Service) RemoveTag(ctx context.Context, path, tag string, opts ...WriteOpt) error {
 	if err := ctx.Err(); err != nil {
 		return &PathError{Op: "remove_tag", Path: path, Err: err}
 	}
+
+	o := applyWriteOpts(opts)
 
 	_, absPath, err := s.sanitizePath("remove_tag", path)
 	if err != nil {
@@ -335,6 +343,10 @@ func (s *Service) RemoveTag(ctx context.Context, path, tag string) error {
 	data, _, err := readNoteBytes(absPath)
 	if err != nil {
 		return &PathError{Op: "remove_tag", Path: path, Err: err}
+	}
+
+	if err := checkIfMatch("remove_tag", path, data, o); err != nil {
+		return err
 	}
 
 	content := string(data)
