@@ -130,7 +130,7 @@ func deleteNoteHandler(deps Deps) server.ToolHandlerFunc {
 
 func moveNoteSpec(deps Deps) toolSpec {
 	tool := mcp.NewTool("move_note",
-		mcp.WithDescription("Move or rename a note within the vault. Creates intermediate directories as needed. Requires confirm to match src exactly. Note: confirm guards the source path only; verify dst carefully before submitting."),
+		mcp.WithDescription("Move or rename a note within the vault. Creates intermediate directories as needed. Requires confirm to match src exactly. Note: confirm guards the source path only; verify dst carefully before submitting. By default also rewrites inbound links elsewhere in the vault to point at the new location — ambiguous link targets are reported, never guessed at, and left unchanged."),
 		mcp.WithString("src",
 			mcp.Required(),
 			mcp.Description("Source path of the note relative to the vault root"),
@@ -142,6 +142,12 @@ func moveNoteSpec(deps Deps) toolSpec {
 		mcp.WithString("confirm",
 			mcp.Required(),
 			mcp.Description("Must match src exactly to confirm the move"),
+		),
+		mcp.WithBoolean("updateLinks",
+			mcp.Description("Rewrite inbound links to src elsewhere in the vault so they point at dst (default: true)"),
+		),
+		mcp.WithBoolean("dryRun",
+			mcp.Description("Preview only — no file is moved and no links are rewritten (default: false)"),
 		),
 		mcp.WithBoolean("prettyPrint",
 			mcp.Description("Format the JSON response with indentation (default: false)"),
@@ -166,16 +172,39 @@ func moveNoteHandler(deps Deps) server.ToolHandlerFunc {
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
+		updateLinks := req.GetBool("updateLinks", true)
+		dryRun := req.GetBool("dryRun", false)
 
-		if err := deps.Vault.MoveNote(ctx, src, dst, confirm); err != nil {
+		result, err := deps.Vault.MoveNote(ctx, src, dst, confirm, updateLinks, dryRun)
+		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		type moveResponse struct {
-			Success bool   `json:"success"`
-			Src     string `json:"src"`
-			Dst     string `json:"dst"`
+		type linkRewriteEntry struct {
+			Path      string `json:"path"`
+			Line      int    `json:"line"`
+			OldText   string `json:"oldText"`
+			NewText   string `json:"newText,omitempty"`
+			Ambiguous bool   `json:"ambiguous"`
 		}
-		return response.ToolResult(req, deps.PrettyPrint, moveResponse{Success: true, Src: src, Dst: dst})
+		links := make([]linkRewriteEntry, len(result.Links))
+		for i, l := range result.Links {
+			links[i] = linkRewriteEntry{Path: l.Path, Line: l.Line, OldText: l.OldText, NewText: l.NewText, Ambiguous: l.Ambiguous}
+		}
+
+		type moveResponse struct {
+			Success bool               `json:"success"`
+			Src     string             `json:"src"`
+			Dst     string             `json:"dst"`
+			Moved   bool               `json:"moved"`
+			Links   []linkRewriteEntry `json:"links,omitempty"`
+		}
+		return response.ToolResult(req, deps.PrettyPrint, moveResponse{
+			Success: true,
+			Src:     result.Src,
+			Dst:     result.Dst,
+			Moved:   result.Moved,
+			Links:   links,
+		})
 	}
 }

@@ -16,6 +16,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `search_notes`, `search_regex`, `list_directory`, and `get_recent_changes` results now include
   an `obsidian://open` `deepLink` field per note. Vault name derives from the vault directory's
   basename, overridable via `--vault-name` (`OBSIDIAN_VAULT_NAME`).
+- `move_note` now rewrites inbound links (wikilinks and markdown links, including anchors, block
+  refs, aliases, and URL-encoded paths) to referrers when a note moves. Ambiguous bare-basename
+  targets are left untouched and reported in the response instead of guessed. New `updateLinks`
+  (default `true`) and `dryRun` (default `false`, preview only) args on `move_note`.
+- `rename_tag` — renames a tag vault-wide across both frontmatter (order-preserving) and inline
+  occurrences, skipping fenced code blocks.
+- `replace_in_note` — scoped search-and-replace within a single note, literal or regex, with an
+  optional `maxOccurrences` cap; reports the true total found even when capped.
 
 ## [0.2.0] - 2026-09-01
 

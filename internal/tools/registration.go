@@ -29,7 +29,9 @@ type VaultService interface {
 
 	PatchNote(ctx context.Context, path string, p vault.PatchOp) error
 	DeleteNote(ctx context.Context, path, confirm string, permanent bool) error
-	MoveNote(ctx context.Context, src, dst, confirm string) error
+	MoveNote(ctx context.Context, src, dst, confirm string, updateLinks, dryRun bool) (*vault.MoveResult, error)
+	RenameTag(ctx context.Context, oldTag, newTag string) ([]vault.TagRename, error)
+	ReplaceInNote(ctx context.Context, path, pattern, replacement string, isRegex bool, maxOccurrences int) (*vault.ReplaceResult, error)
 
 	StatNote(ctx context.Context, path string) (*vault.NoteInfo, error)
 
@@ -112,6 +114,8 @@ func allSpecs(deps Deps) []toolSpec {
 		auditNotesSpec(deps),
 		getNoteOutlineSpec(deps),
 		readNoteLinesSpec(deps),
+		renameTagSpec(deps),
+		replaceInNoteSpec(deps),
 	}
 }
 
