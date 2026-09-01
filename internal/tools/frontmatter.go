@@ -62,6 +62,9 @@ func updateFrontmatterSpec(deps Deps) toolSpec {
 		mcp.WithString("removeKeys",
 			mcp.Description("JSON array of key names to remove from the frontmatter"),
 		),
+		mcp.WithString("if_match",
+			mcp.Description("Optional etag from a prior read; the update fails with REVISION_CONFLICT if the note's current content does not match"),
+		),
 		mcp.WithBoolean("prettyPrint",
 			mcp.Description("Format the JSON response with indentation (default: false)"),
 		),
@@ -88,8 +91,10 @@ func updateFrontmatterHandler(deps Deps) server.ToolHandlerFunc {
 			return errResult, nil
 		}
 
-		if err := deps.Vault.UpdateFrontmatter(ctx, path, updates, removeKeys); err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		ifMatch := req.GetString("if_match", "")
+
+		if err := deps.Vault.UpdateFrontmatter(ctx, path, updates, removeKeys, ifMatchOpt(ifMatch)...); err != nil {
+			return vaultWriteError(err), nil
 		}
 
 		type updateResponse struct {

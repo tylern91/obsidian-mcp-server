@@ -18,6 +18,7 @@ type Note struct {
 	Content string    // raw file content including any frontmatter
 	Size    int64     // file size in bytes
 	ModTime time.Time // last modification time
+	Etag    string    // SHA-256 hex digest of Content, see Etag
 }
 
 // WriteMode controls how WriteNote behaves.
@@ -325,6 +326,7 @@ func (s *Service) ReadNote(ctx context.Context, path string) (*Note, error) {
 		Content: string(data),
 		Size:    info.Size(),
 		ModTime: info.ModTime(),
+		Etag:    Etag(data),
 	}, nil
 }
 
@@ -333,7 +335,13 @@ func (s *Service) ReadNote(ctx context.Context, path string) (*Note, error) {
 // WriteNote does NOT apply extension filtering — any file that passes the ignore
 // filter may be written.
 // Returns ErrFileTooLarge if the content exceeds maxFileSizeBytes.
-func (s *Service) WriteNote(ctx context.Context, path, content string, mode WriteMode) error {
+//
+// If opts supplies WithIfMatch, the write is conditional on the note's
+// current content: a nonexistent note never matches a supplied etag (a
+// caller presenting a revision for a file that doesn't exist is a conflict,
+// not an implicit create), so ErrRevisionConflict is returned rather than
+// falling through to a create.
+func (s *Service) WriteNote(ctx context.Context, path, content string, mode WriteMode, opts ...WriteOpt) error {
 	if err := ctx.Err(); err != nil {
 		return &PathError{Op: "write", Path: path, Err: err}
 	}
@@ -342,6 +350,8 @@ func (s *Service) WriteNote(ctx context.Context, path, content string, mode Writ
 	if int64(len(content)) > maxFileSizeBytes {
 		return &PathError{Op: "write", Path: path, Err: ErrFileTooLarge}
 	}
+
+	o := applyWriteOpts(opts)
 
 	_, absPath, err := s.sanitizePath("write", path)
 	if err != nil {
@@ -357,6 +367,21 @@ func (s *Service) WriteNote(ctx context.Context, path, content string, mode Writ
 		return err
 	}
 
+	var existing string
+	if o.ifMatch != "" {
+		data, _, readErr := readNoteBytes(absPath)
+		if readErr != nil {
+			if os.IsNotExist(readErr) {
+				return &PathError{Op: "write", Path: path, Err: ErrRevisionConflict}
+			}
+			return &PathError{Op: "write", Path: path, Err: readErr}
+		}
+		if err := checkIfMatch("write", path, data, o); err != nil {
+			return err
+		}
+		existing = string(data)
+	}
+
 	parentDir := filepath.Dir(absPath)
 
 	switch mode {
@@ -369,7 +394,9 @@ func (s *Service) WriteNote(ctx context.Context, path, content string, mode Writ
 		}
 
 	case WriteModeAppend, WriteModePrepend:
-		existing := readExistingOrEmpty(absPath)
+		if o.ifMatch == "" {
+			existing = readExistingOrEmpty(absPath)
+		}
 		if err := os.MkdirAll(parentDir, 0755); err != nil {
 			return &PathError{Op: "write", Path: path, Err: err}
 		}
@@ -492,6 +519,7 @@ type NoteInfo struct {
 	Title     string // frontmatter "title" key, or filename stem as fallback
 	TagCount  int    // number of unique tags from ListTags
 	LinkCount int    // number of unique link targets from ExtractLinks
+	Etag      string // SHA-256 hex digest of the note's content, see Etag
 }
 
 // StatNote returns NoteInfo for the given vault-relative path.
@@ -536,5 +564,6 @@ func (s *Service) StatNote(ctx context.Context, path string) (*NoteInfo, error) 
 		Title:     title,
 		TagCount:  len(tags),
 		LinkCount: len(links),
+		Etag:      note.Etag,
 	}, nil
 }

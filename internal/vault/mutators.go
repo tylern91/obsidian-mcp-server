@@ -20,10 +20,12 @@ type PatchOp struct {
 // Position "before" inserts content before the heading line.
 // Position "after" inserts content after the heading's body (before the next same-level heading).
 // Position "replace_body" replaces the body of the heading section.
-func (s *Service) PatchNote(ctx context.Context, path string, p PatchOp) error {
+func (s *Service) PatchNote(ctx context.Context, path string, p PatchOp, opts ...WriteOpt) error {
 	if err := ctx.Err(); err != nil {
 		return &PathError{Op: "patch", Path: path, Err: err}
 	}
+
+	o := applyWriteOpts(opts)
 
 	_, absPath, err := s.sanitizePath("patch", path)
 	if err != nil {
@@ -43,6 +45,10 @@ func (s *Service) PatchNote(ctx context.Context, path string, p PatchOp) error {
 			return &PathError{Op: "patch", Path: path, Err: ErrNotFound}
 		}
 		return &PathError{Op: "patch", Path: path, Err: err}
+	}
+
+	if err := checkIfMatch("patch", path, data, o); err != nil {
+		return err
 	}
 
 	lines := strings.Split(string(data), "\n")
@@ -132,7 +138,7 @@ func splitLines(content string) []string {
 // structure) so an accidental delete is recoverable; permanent=true hard-deletes
 // instead. confirm must equal path exactly, otherwise ErrConfirmMismatch is
 // returned — this guard applies regardless of permanent.
-func (s *Service) DeleteNote(ctx context.Context, path, confirm string, permanent bool) error {
+func (s *Service) DeleteNote(ctx context.Context, path, confirm string, permanent bool, opts ...WriteOpt) error {
 	if err := ctx.Err(); err != nil {
 		return &PathError{Op: "delete", Path: path, Err: err}
 	}
@@ -140,6 +146,8 @@ func (s *Service) DeleteNote(ctx context.Context, path, confirm string, permanen
 	if confirm != path {
 		return &PathError{Op: "delete", Path: path, Err: ErrConfirmMismatch}
 	}
+
+	o := applyWriteOpts(opts)
 
 	cleaned, absPath, err := s.sanitizePath("delete", path)
 	if err != nil {
@@ -151,6 +159,19 @@ func (s *Service) DeleteNote(ctx context.Context, path, confirm string, permanen
 
 	if err := s.checkSymlinksForWrite("delete", path, absPath); err != nil {
 		return err
+	}
+
+	if o.ifMatch != "" {
+		data, _, readErr := readNoteBytes(absPath)
+		if readErr != nil {
+			if os.IsNotExist(readErr) {
+				return &PathError{Op: "delete", Path: path, Err: ErrNotFound}
+			}
+			return &PathError{Op: "delete", Path: path, Err: readErr}
+		}
+		if err := checkIfMatch("delete", path, data, o); err != nil {
+			return err
+		}
 	}
 
 	if permanent {
@@ -246,7 +267,10 @@ type MoveResult struct {
 // targets are reported, never guessed at. When dryRun is true, nothing on
 // disk changes (no move, no link rewrite) — the result previews what would
 // happen.
-func (s *Service) MoveNote(ctx context.Context, src, dst, confirm string, updateLinks, dryRun bool) (*MoveResult, error) {
+// Note: dryRun does not enforce WriteOpt.ifMatch — the dry-run branch is a
+// lock-free os.Stat preview by design (see below), so there is no critical
+// section in which to compare content safely. Only the real move enforces it.
+func (s *Service) MoveNote(ctx context.Context, src, dst, confirm string, updateLinks, dryRun bool, opts ...WriteOpt) (*MoveResult, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, &PathError{Op: "move", Path: src, Err: err}
 	}
@@ -275,7 +299,7 @@ func (s *Service) MoveNote(ctx context.Context, src, dst, confirm string, update
 			}
 			return nil, &PathError{Op: "move", Path: src, Err: statErr}
 		}
-	} else if err := s.moveFileLocked(src, srcAbs, dst, dstAbs); err != nil {
+	} else if err := s.moveFileLocked(src, srcAbs, dst, dstAbs, opts...); err != nil {
 		return nil, err
 	}
 
@@ -294,7 +318,9 @@ func (s *Service) MoveNote(ctx context.Context, src, dst, confirm string, update
 // existing dst-exists-check-then-rename critical section: two concurrent
 // moves to the same dst must not both pass the check and both os.Rename,
 // silently clobbering one of the notes.
-func (s *Service) moveFileLocked(src, srcAbs, dst, dstAbs string) error {
+func (s *Service) moveFileLocked(src, srcAbs, dst, dstAbs string, opts ...WriteOpt) error {
+	o := applyWriteOpts(opts)
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -307,6 +333,19 @@ func (s *Service) moveFileLocked(src, srcAbs, dst, dstAbs string) error {
 	}
 	if err := s.checkSymlinksForWrite("move", dst, dstAbs); err != nil {
 		return err
+	}
+
+	if o.ifMatch != "" {
+		data, _, readErr := readNoteBytes(srcAbs)
+		if readErr != nil {
+			if os.IsNotExist(readErr) {
+				return &PathError{Op: "move", Path: src, Err: ErrNotFound}
+			}
+			return &PathError{Op: "move", Path: src, Err: readErr}
+		}
+		if err := checkIfMatch("move", src, data, o); err != nil {
+			return err
+		}
 	}
 
 	dstParent := filepath.Dir(dstAbs)

@@ -24,6 +24,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   occurrences, skipping fenced code blocks.
 - `replace_in_note` — scoped search-and-replace within a single note, literal or regex, with an
   optional `maxOccurrences` cap; reports the true total found even when capped.
+- Optimistic concurrency via ETags. `read_note`, `read_multiple_notes`, and `get_notes_info` now
+  return a SHA-256 `etag` of note content. `write_note`, `patch_note`, `update_frontmatter`,
+  `manage_tags`, `delete_note`, and `move_note` accept an optional `if_match`; a mismatch returns a
+  `REVISION_CONFLICT` tool error instead of silently overwriting a concurrent edit. `if_match` is
+  additive and optional everywhere — omitting it writes unconditionally, as before. Two edge cases:
+  `if_match` against a note that doesn't exist yet is always a conflict, never an implicit create;
+  and `move_note`'s `dryRun: true` preview does not enforce `if_match`.
 
 ## [0.2.0] - 2026-09-01
 

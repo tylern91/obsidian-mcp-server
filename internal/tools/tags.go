@@ -30,6 +30,9 @@ func manageTagsSpec(deps Deps) toolSpec {
 			mcp.Enum("frontmatter", "inline"),
 			mcp.DefaultString("frontmatter"),
 		),
+		mcp.WithString("if_match",
+			mcp.Description("Optional etag from a prior read; the operation fails with REVISION_CONFLICT if the note's current content does not match"),
+		),
 		mcp.WithBoolean("prettyPrint",
 			mcp.Description("Format the JSON response with indentation (default: false)"),
 		),
@@ -54,15 +57,16 @@ func manageTagsHandler(deps Deps) server.ToolHandlerFunc {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		location := req.GetString("location", "frontmatter")
+		ifMatch := req.GetString("if_match", "")
 
 		switch action {
 		case "add":
-			if err := deps.Vault.AddTag(ctx, path, tag, location); err != nil {
-				return mcp.NewToolResultError(err.Error()), nil
+			if err := deps.Vault.AddTag(ctx, path, tag, location, ifMatchOpt(ifMatch)...); err != nil {
+				return vaultWriteError(err), nil
 			}
 		case "remove":
-			if err := deps.Vault.RemoveTag(ctx, path, tag); err != nil {
-				return mcp.NewToolResultError(err.Error()), nil
+			if err := deps.Vault.RemoveTag(ctx, path, tag, ifMatchOpt(ifMatch)...); err != nil {
+				return vaultWriteError(err), nil
 			}
 		default:
 			return mcp.NewToolResultError("unknown action: " + action), nil

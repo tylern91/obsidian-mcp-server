@@ -44,6 +44,7 @@ func readNoteHandler(deps Deps) server.ToolHandlerFunc {
 			Size       int64  `json:"size"`
 			ModTime    string `json:"modTime"` // RFC3339
 			TokenCount int    `json:"tokenCount"`
+			Etag       string `json:"etag"`
 		}
 
 		resp := noteResponse{
@@ -52,6 +53,7 @@ func readNoteHandler(deps Deps) server.ToolHandlerFunc {
 			Size:       note.Size,
 			ModTime:    note.ModTime.UTC().Format(time.RFC3339),
 			TokenCount: response.CountTokens(note.Content),
+			Etag:       note.Etag,
 		}
 
 		return response.ToolResult(req, deps.PrettyPrint, resp)
@@ -74,6 +76,9 @@ func writeNoteSpec(deps Deps) toolSpec {
 			mcp.Enum("overwrite", "append", "prepend"),
 			mcp.DefaultString("overwrite"),
 		),
+		mcp.WithString("if_match",
+			mcp.Description("Optional etag from a prior read; the write fails with REVISION_CONFLICT if the note's current content does not match"),
+		),
 		mcp.WithBoolean("prettyPrint",
 			mcp.Description("Format the JSON response with indentation (default: false)"),
 		),
@@ -94,9 +99,10 @@ func writeNoteHandler(deps Deps) server.ToolHandlerFunc {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		modeStr := req.GetString("mode", "overwrite")
+		ifMatch := req.GetString("if_match", "")
 
-		if err := deps.Vault.WriteNote(ctx, path, content, vault.WriteMode(modeStr)); err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		if err := deps.Vault.WriteNote(ctx, path, content, vault.WriteMode(modeStr), ifMatchOpt(ifMatch)...); err != nil {
+			return vaultWriteError(err), nil
 		}
 
 		type writeResponse struct {

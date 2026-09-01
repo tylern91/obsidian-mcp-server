@@ -26,21 +26,21 @@ A Go [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server for 
 
 | Tool | Description | Params |
 | --- | --- | --- |
-| `read_note` | Read a note's content and metadata | `path` (required), `prettyPrint` |
-| `write_note` | Create or update a note | `path`, `content` (required), `mode`: overwrite/append/prepend |
+| `read_note` | Read a note's content and metadata | `path` (required), `prettyPrint` — response includes an `etag` |
+| `write_note` | Create or update a note | `path`, `content` (required), `mode`: overwrite/append/prepend, `if_match` (optional etag) |
 | `list_directory` | List files and subdirectories | `path` (empty = vault root), `prettyPrint` |
 | `get_frontmatter` | Read YAML frontmatter from a note | `path` (required), `prettyPrint` |
-| `update_frontmatter` | Set or remove frontmatter keys (format-preserving) | `path` (required), `updates` (JSON object), `removeKeys` (JSON array) |
-| `manage_tags` | Add or remove a tag on a note | `path`, `action`: add/remove (required), `tag` (required), `location`: frontmatter/inline |
+| `update_frontmatter` | Set or remove frontmatter keys (format-preserving) | `path` (required), `updates` (JSON object), `removeKeys` (JSON array), `if_match` (optional etag) |
+| `manage_tags` | Add or remove a tag on a note | `path`, `action`: add/remove (required), `tag` (required), `location`: frontmatter/inline, `if_match` (optional etag) |
 | `list_all_tags` | Aggregate all tags across the vault with counts | `prettyPrint` |
 | `get_backlinks` | Find all notes that link to a target note | `path` (required), `prettyPrint` |
-| `patch_note` | Apply a heading-anchored patch to a note | `path`, `heading`, `position`: before/after/replace_body, `content` (all required) |
-| `delete_note` | Move a note to `.obsidian-mcp/trash` (requires confirm); pass `permanent: true` to hard-delete instead | `path`, `confirm` (must match path exactly), `permanent` (optional, default false) |
-| `move_note` | Move or rename a note within the vault (requires confirm); rewrites unambiguous inbound links by default | `src`, `dst`, `confirm` (must match src exactly), `updateLinks` (bool, default true), `dryRun` (bool, default false) |
+| `patch_note` | Apply a heading-anchored patch to a note | `path`, `heading`, `position`: before/after/replace_body, `content` (all required), `if_match` (optional etag) |
+| `delete_note` | Move a note to `.obsidian-mcp/trash` (requires confirm); pass `permanent: true` to hard-delete instead | `path`, `confirm` (must match path exactly), `permanent` (optional, default false), `if_match` (optional etag) |
+| `move_note` | Move or rename a note within the vault (requires confirm); rewrites unambiguous inbound links by default | `src`, `dst`, `confirm` (must match src exactly), `updateLinks` (bool, default true), `dryRun` (bool, default false), `if_match` (optional etag; ignored when `dryRun` is true) |
 | `search_notes` | BM25 full-text search with ranked results and match snippets | `query` (required), `limit`, `maxMatchesPerFile`, `caseSensitive`, `searchContent`, `searchFrontmatter`, `pathScope`, `prettyPrint` |
 | `search_regex` | Search using RE2 regex or glob pattern | `pattern` (required), `isGlob`, `scope`, `limit`, `maxMatchesPerFile`, `prettyPrint` |
-| `read_multiple_notes` | Read the content of multiple notes in a single request | `paths` (required, JSON array), `summary` (bool, default false), `headChars` (int, default 200) |
-| `get_notes_info` | Get metadata for multiple notes without reading full content | `paths` (required, JSON array) |
+| `read_multiple_notes` | Read the content of multiple notes in a single request | `paths` (required, JSON array), `summary` (bool, default false), `headChars` (int, default 200) — each entry includes an `etag` |
+| `get_notes_info` | Get metadata for multiple notes without reading full content | `paths` (required, JSON array) — each entry includes an `etag` |
 | `get_vault_stats` | Get aggregate statistics about the entire vault | `includeTokenCounts` (bool, default false) |
 | `get_periodic_note` | Get a periodic note (daily, weekly, monthly, quarterly, or yearly) | `granularity` (required, enum: daily/weekly/monthly/quarterly/yearly), `offset` (int, default 0), `createIfMissing` (bool, default false) |
 | `get_recent_periodic_notes` | Get the N most recent periodic notes | `granularity` (required, enum: daily/weekly/monthly/quarterly/yearly), `count` (int, default 5), `summary` (bool, default true) |
@@ -90,6 +90,8 @@ Returns: `{ query, results: [{ path, score, matchCount, matches: [{line, snippet
 Returns: `{ pattern, scope, results: [{ path, matches: [{line, snippet}] }], total }`
 
 **Batch tools (`read_multiple_notes`, `get_notes_info`)**: The `paths` parameter is a JSON array string — e.g. `'["Notes/foo.md","Notes/bar.md"]'`. `summary:true` returns `headOf` (first N runes from `headChars`, default 200) instead of full content, which is useful for large notes to stay within context limits. Both tools enforce `--max-batch` (default 10); requests with more paths are silently truncated and the response includes `"truncated": true`.
+
+**Optimistic concurrency (`if_match` / `etag`)**: `read_note`, `read_multiple_notes`, and `get_notes_info` return a SHA-256 `etag` of the note's content. Pass that value as `if_match` on `write_note`, `patch_note`, `update_frontmatter`, `manage_tags`, `delete_note`, or `move_note` to make the write conditional — if the note has changed since you read it, the call fails with a `REVISION_CONFLICT` error instead of silently overwriting someone else's edit. `if_match` is optional everywhere; omitting it writes unconditionally, as before. Two edge cases: passing `if_match` for a note that doesn't exist yet is always a conflict (it never creates the note), and `move_note`'s `dryRun:true` preview does not enforce `if_match`.
 
 **Periodic notes (`get_periodic_note`, `get_recent_periodic_notes`)**: Configuration (folder and date format per granularity) is read from `.obsidian/plugins/periodic-notes/data.json` inside the vault. If that file is missing, built-in defaults are used: daily notes use `YYYY-MM-DD` in `Daily Notes/`, weekly notes use `gggg-[W]ww` in `Weekly Notes/`, and so on. `offset=0` resolves to the current period, `offset=-1` to the previous period (yesterday, last week, etc.), and `offset=+1` to the next period. `createIfMissing=true` creates an empty note at the resolved path if it does not already exist.
 

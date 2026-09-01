@@ -17,6 +17,7 @@ var (
 	ErrInvalidFrontmatter = errors.New("invalid frontmatter")
 	ErrHeadingNotFound    = errors.New("heading not found")
 	ErrFileTooLarge       = errors.New("file exceeds maximum allowed size")
+	ErrRevisionConflict   = errors.New("revision conflict: if_match does not match current content")
 )
 
 // PathError records an error and the path and operation that caused it.
