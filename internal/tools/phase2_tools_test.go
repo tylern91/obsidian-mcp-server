@@ -306,6 +306,42 @@ func TestDeleteNoteHandler_Success(t *testing.T) {
 	assert.Contains(t, text, `"success":true`)
 }
 
+func TestDeleteNoteHandler_DefaultTrashesRatherThanHardDeletes(t *testing.T) {
+	deps := mutableDeps(t)
+	handler := tools.DeleteNoteHandler(deps)
+	result, err := handler(context.Background(), makeRequest(
+		"path", "Notes/simple.md",
+		"confirm", "Notes/simple.md",
+	))
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+	text := extractText(t, result)
+	assert.Contains(t, text, `"permanent":false`)
+
+	trashRoot := filepath.Join(deps.Vault.Root(), ".obsidian-mcp", "trash")
+	entries, err := os.ReadDir(trashRoot)
+	require.NoError(t, err)
+	assert.NotEmpty(t, entries, "expected a trash entry after the default delete")
+}
+
+func TestDeleteNoteHandler_Permanent(t *testing.T) {
+	deps := mutableDeps(t)
+	handler := tools.DeleteNoteHandler(deps)
+	result, err := handler(context.Background(), makeRequestMixed(
+		"path", "Notes/simple.md",
+		"confirm", "Notes/simple.md",
+		"permanent", true,
+	))
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+	text := extractText(t, result)
+	assert.Contains(t, text, `"permanent":true`)
+
+	trashRoot := filepath.Join(deps.Vault.Root(), ".obsidian-mcp", "trash")
+	_, err = os.Stat(trashRoot)
+	assert.True(t, os.IsNotExist(err), "permanent delete must not create a trash directory")
+}
+
 func TestDeleteNoteHandler_ConfirmMismatch(t *testing.T) {
 	deps := mutableDeps(t)
 	handler := tools.DeleteNoteHandler(deps)

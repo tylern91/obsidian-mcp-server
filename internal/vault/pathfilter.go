@@ -12,6 +12,23 @@ type PathFilter struct {
 	allowedExts    []string // e.g. [".md", ".markdown", ".txt", ".canvas"]
 }
 
+// internalStateDir is the top-level directory obsidian-mcp-server uses for
+// its own bookkeeping (currently: delete_note's trash). It is always
+// excluded from path resolution, directory listings, and walks —
+// independent of the configured ignore patterns and even when no
+// PathFilter is configured — so a user overriding --ignore can never
+// accidentally resurface trashed notes as live vault content.
+const internalStateDir = ".obsidian-mcp"
+
+// IsInternalState reports whether path's first component is the server's
+// internal state directory. Unlike IsIgnored, this check is unconditional:
+// call sites must apply it regardless of whether a *PathFilter is present.
+func IsInternalState(path string) bool {
+	normalized := filepath.ToSlash(path)
+	first, _, _ := strings.Cut(normalized, "/")
+	return first == internalStateDir
+}
+
 // NewPathFilter creates a PathFilter with the given ignore patterns and
 // allowed extensions. Either slice may be nil or empty.
 func NewPathFilter(ignorePatterns, allowedExts []string) *PathFilter {

@@ -35,7 +35,7 @@ A Go [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server for 
 | `list_all_tags` | Aggregate all tags across the vault with counts | `prettyPrint` |
 | `get_backlinks` | Find all notes that link to a target note | `path` (required), `prettyPrint` |
 | `patch_note` | Apply a heading-anchored patch to a note | `path`, `heading`, `position`: before/after/replace_body, `content` (all required) |
-| `delete_note` | Permanently delete a note (requires confirm) | `path`, `confirm` (must match path exactly) |
+| `delete_note` | Move a note to `.obsidian-mcp/trash` (requires confirm); pass `permanent: true` to hard-delete instead | `path`, `confirm` (must match path exactly), `permanent` (optional, default false) |
 | `move_note` | Move or rename a note within the vault (requires confirm) | `src`, `dst`, `confirm` (must match src exactly) |
 | `search_notes` | BM25 full-text search with ranked results and match snippets | `query` (required), `limit`, `maxMatchesPerFile`, `caseSensitive`, `searchContent`, `searchFrontmatter`, `pathScope`, `prettyPrint` |
 | `search_regex` | Search using RE2 regex or glob pattern | `pattern` (required), `isGlob`, `scope`, `limit`, `maxMatchesPerFile`, `prettyPrint` |
@@ -221,6 +221,8 @@ Configuration follows **CLI flag > environment variable > default** precedence.
 | `--max-batch` | `OBSIDIAN_MAX_BATCH` | `10` | Integer ≥ `1`. Non-integer or `<1` causes a startup error. Caps the number of files processed in a single batch tool call (Phase 4). **High values increase memory usage and token count per response** — very large batches can overflow an AI client's context window and slow down individual tool calls. Keep at or near the default unless your vault files are small. |
 | `--max-results` | `OBSIDIAN_MAX_RESULTS` | `20` | Integer ≥ `1`. Non-integer or `<1` causes a startup error. Caps the number of search results returned. **High values increase response token count** — returning hundreds of results per search can exhaust the AI client's context window with low-relevance entries. Increase only when precision-recall trade-offs require broader result sets. |
 | `--log-level` | `OBSIDIAN_LOG_LEVEL` | `warn` | One of: `debug`, `info`, `warn`, `error` (lowercase, case-sensitive). Unknown values silently fall back to `warn` — no error, no warning logged. |
+| `--read-only` | `OBSIDIAN_READ_ONLY` | `false` | CLI: bare `--read-only` enables it. Env var: same `ParseBool` rules as `--pretty`. When enabled, mutating tools (`write_note`, `delete_note`, `move_note`, etc.) are not registered — they never appear in `tools/list`. |
+| `--trash-retention-days` | `OBSIDIAN_TRASH_RETENTION_DAYS` | `30` | Integer ≥ `0`. Non-integer or negative causes a startup error. `delete_note` moves notes to `.obsidian-mcp/trash/<timestamp>/<path>` by default instead of hard-deleting; entries older than this many days are pruned once at startup. |
 
 ### Examples
 

@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-01
+
+### Added
+
+- `delete_note` now moves notes to `.obsidian-mcp/trash/<timestamp>/<path>` by default instead of
+  hard-deleting, preserving vault-relative structure so a delete is recoverable. Pass
+  `permanent: true` to hard-delete as before; `confirm` still guards both paths. Trash is pruned
+  once at server startup via the new `--trash-retention-days` flag (`OBSIDIAN_TRASH_RETENTION_DAYS`,
+  default 30).
+- `--read-only` flag (`OBSIDIAN_READ_ONLY`) disables all mutating tools: they are omitted from
+  `tools/list` entirely, not merely rejected at call time, so a client never sees them as an option.
+- `.obsidian-mcp/` (the server's own state directory) is now unconditionally excluded from path
+  resolution, directory listings, and search/audit walks — independent of `--ignore` — so overriding
+  the ignore list can never resurface trashed notes as live content.
+
+### Changed
+
+- `delete_note`'s response now includes a `permanent` field reflecting how the delete was performed.
+
 ## [0.1.0] - 2026-08-29
 
 Nothing was ever published under the previous `1.0.0`/`0.1.0` version strings this project carried

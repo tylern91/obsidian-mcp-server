@@ -34,12 +34,15 @@ func (s *Service) WalkNotes(ctx context.Context, fn func(rel, abs string) error)
 		}
 
 		if d.IsDir() {
-			if rel != "." && s.filter != nil && s.filter.IsIgnored(rel) {
+			if rel != "." && (IsInternalState(rel) || (s.filter != nil && s.filter.IsIgnored(rel))) {
 				return filepath.SkipDir
 			}
 			return nil
 		}
 
+		if IsInternalState(rel) {
+			return nil
+		}
 		if s.filter != nil {
 			if s.filter.IsIgnored(rel) {
 				return nil

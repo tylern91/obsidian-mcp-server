@@ -99,7 +99,7 @@ func (s *Service) sanitizePath(op, relativePath string) (cleaned, absPath string
 		return "", "", &PathError{Op: op, Path: relativePath, Err: ErrPathTraversal}
 	}
 
-	if s.filter != nil && s.filter.IsIgnored(relativePath) {
+	if IsInternalState(cleaned) || (s.filter != nil && s.filter.IsIgnored(relativePath)) {
 		return "", "", &PathError{Op: op, Path: relativePath, Err: ErrPathRestricted}
 	}
 
@@ -460,7 +460,7 @@ func (s *Service) ListDirectory(ctx context.Context, path string) ([]DirEntry, e
 			relPath = filepath.Join(path, name)
 		}
 
-		if s.filter != nil && s.filter.IsIgnored(relPath) {
+		if IsInternalState(relPath) || (s.filter != nil && s.filter.IsIgnored(relPath)) {
 			continue
 		}
 
