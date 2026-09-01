@@ -130,7 +130,7 @@ func TestRun_ServesHTTPSWithAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Do (no auth): %v", err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("status without Authorization = %d, want %d", resp.StatusCode, http.StatusUnauthorized)
 	}
@@ -144,7 +144,7 @@ func TestRun_ServesHTTPSWithAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Do (with auth): %v", err)
 	}
-	resp2.Body.Close()
+	_ = resp2.Body.Close()
 	if resp2.StatusCode == http.StatusUnauthorized || resp2.StatusCode == http.StatusForbidden {
 		t.Errorf("status with correct bearer token = %d, want auth to pass (not 401/403)", resp2.StatusCode)
 	}
@@ -169,7 +169,7 @@ func freePort(t *testing.T) int {
 	if err != nil {
 		t.Fatalf("find free port: %v", err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	return l.Addr().(*net.TCPAddr).Port
 }
 
@@ -186,7 +186,7 @@ func waitForTLSListener(t *testing.T, addr string) {
 			&tls.Config{InsecureSkipVerify: true}, //nolint:gosec // liveness probe only
 		)
 		if err == nil {
-			conn.Close()
+			_ = conn.Close()
 			return
 		}
 		time.Sleep(20 * time.Millisecond)

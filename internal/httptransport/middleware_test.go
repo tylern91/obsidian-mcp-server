@@ -120,7 +120,7 @@ func TestHostOriginMiddleware_RejectsDisallowedHost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Do: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusForbidden {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusForbidden)
@@ -150,7 +150,7 @@ func TestHostOriginMiddleware_RejectsDisallowedOrigin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Do: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusForbidden {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusForbidden)
@@ -172,7 +172,7 @@ func TestHostOriginMiddleware_AllowsLoopbackWithNoOrigin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Do: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
@@ -196,7 +196,7 @@ func TestBodyCapMiddleware_RejectsOversizedBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Post: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusRequestEntityTooLarge {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusRequestEntityTooLarge)
@@ -219,7 +219,7 @@ func TestBodyCapMiddleware_AllowsBodyUnderCap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Post: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
@@ -253,7 +253,7 @@ func TestAuthMiddleware_RejectsMissingOrWrongToken(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Do: %v", err)
 			}
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 
 			if resp.StatusCode != http.StatusUnauthorized {
 				t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusUnauthorized)
@@ -280,7 +280,7 @@ func TestAuthMiddleware_AcceptsCorrectToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Do: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
@@ -311,7 +311,7 @@ func TestAuthMiddleware_SetsCredentialHashInContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Do: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if !gotOK || gotHash == "" {
 		t.Fatal("expected a credential hash to be set in the request context")
@@ -356,7 +356,7 @@ func TestBuildChain_OrderingHostRejectionPrecedesAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Do: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusForbidden {
 		t.Errorf("status = %d, want %d (host/origin must be checked before auth)", resp.StatusCode, http.StatusForbidden)
@@ -379,7 +379,7 @@ func TestBuildChain_FullChainAcceptsValidRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Do: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
