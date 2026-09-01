@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -26,6 +27,7 @@ type Config struct {
 	InvalidLogLevel    string // non-empty when an unrecognized log level was given
 	ReadOnly           bool
 	TrashRetentionDays int
+	VaultName          string
 }
 
 // Load parses configuration from CLI flags, environment variables, and defaults.
@@ -44,6 +46,7 @@ func Load(args []string) (*Config, error) {
 	logLevel := fs.String("log-level", "warn", "log level: debug, info, warn, error")
 	readOnly := fs.Bool("read-only", false, "disable all mutating tools (they are not registered, so clients never see them)")
 	trashRetentionDays := fs.Int("trash-retention-days", 30, "days to keep trashed notes (.obsidian-mcp/trash) before they are pruned at startup")
+	vaultName := fs.String("vault-name", "", "vault name used to build obsidian:// deep links in search/listing results (default: the vault directory's basename)")
 
 	if err := fs.Parse(args); err != nil {
 		return nil, err
@@ -70,6 +73,7 @@ func Load(args []string) (*Config, error) {
 		LogLevel:           *logLevel,
 		ReadOnly:           *readOnly,
 		TrashRetentionDays: *trashRetentionDays,
+		VaultName:          *vaultName,
 	}
 
 	// Apply environment variable overrides for flags that were NOT explicitly set.
@@ -92,6 +96,7 @@ func Load(args []string) (*Config, error) {
 	if err := envInt(explicitFlags, "trash-retention-days", "OBSIDIAN_TRASH_RETENTION_DAYS", &cfg.TrashRetentionDays); err != nil {
 		return nil, err
 	}
+	envString(explicitFlags, "vault-name", "OBSIDIAN_VAULT_NAME", &cfg.VaultName)
 
 	// Normalize LogLevel: default to "warn" if unrecognized, and record the bad value.
 	switch cfg.LogLevel {
@@ -113,6 +118,11 @@ func Load(args []string) (*Config, error) {
 	info, err := os.Stat(cfg.VaultPath)
 	if err != nil || !info.IsDir() {
 		return nil, fmt.Errorf("vault path does not exist or is not a directory: %s", cfg.VaultPath)
+	}
+
+	cfg.VaultName = strings.TrimSpace(cfg.VaultName)
+	if cfg.VaultName == "" {
+		cfg.VaultName = filepath.Base(cfg.VaultPath)
 	}
 
 	if cfg.MaxBatch < 1 {

@@ -117,6 +117,44 @@ func TestLoad_ReadOnlyAndTrashRetentionEnvVars(t *testing.T) {
 	}
 }
 
+func TestLoad_VaultNameDefaultsToDirBasename(t *testing.T) {
+	vault := filepath.Join(t.TempDir(), "MyVault")
+	if err := os.Mkdir(vault, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	cfg, err := config.Load([]string{"--vault", vault})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.VaultName != "MyVault" {
+		t.Errorf("VaultName = %q, want %q", cfg.VaultName, "MyVault")
+	}
+}
+
+func TestLoad_VaultNameFlagOverridesBasename(t *testing.T) {
+	vault := t.TempDir()
+	cfg, err := config.Load([]string{"--vault", vault, "--vault-name", "Custom Name"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.VaultName != "Custom Name" {
+		t.Errorf("VaultName = %q, want %q", cfg.VaultName, "Custom Name")
+	}
+}
+
+func TestLoad_VaultNameEnvVar(t *testing.T) {
+	vault := t.TempDir()
+	t.Setenv("OBSIDIAN_VAULT_PATH", vault)
+	t.Setenv("OBSIDIAN_VAULT_NAME", "EnvVault")
+	cfg, err := config.Load([]string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.VaultName != "EnvVault" {
+		t.Errorf("VaultName = %q, want %q", cfg.VaultName, "EnvVault")
+	}
+}
+
 func TestLoad_ErrorTrashRetentionDaysNegative(t *testing.T) {
 	vault := t.TempDir()
 	_, err := config.Load([]string{"--vault", vault, "--trash-retention-days", "-1"})

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `get_note_outline` — returns a note's heading tree (level, text, line number) without its body.
+- `read_note_lines` — reads a bounded range of lines from a note (`startLine` + `lineCount`,
+  default 200, capped at 2000), cheaper than `read_note` for a long note when only a section is
+  needed.
+- `search_notes`, `search_regex`, `list_directory`, and `get_recent_changes` results now include
+  an `obsidian://open` `deepLink` field per note. Vault name derives from the vault directory's
+  basename, overridable via `--vault-name` (`OBSIDIAN_VAULT_NAME`).
+
 ## [0.2.0] - 2026-09-01
 
 ### Added

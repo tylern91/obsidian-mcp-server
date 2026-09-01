@@ -46,6 +46,11 @@ A Go [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server for 
 | `get_recent_periodic_notes` | Get the N most recent periodic notes | `granularity` (required, enum: daily/weekly/monthly/quarterly/yearly), `count` (int, default 5), `summary` (bool, default true) |
 | `get_recent_changes` | List notes most recently modified in the vault | `limit` (int, default 10), `since` (string, ISO-8601), `summary` (bool, default true) |
 | `audit_notes` | Audit the vault for hygiene issues: orphans, dangling links, untagged notes, duplicate titles | `classes` (JSON array: orphans/dangling-links/untagged/duplicate-titles, default all), `limit` (int per class, default 20) |
+| `get_note_outline` | Return a note's heading tree (level, text, line number) without its body | `path` (required), `prettyPrint` |
+| `read_note_lines` | Read a bounded range of lines from a note | `path`, `startLine` (required), `lineCount` (int, default 200, capped at 2000) |
+
+`search_notes`, `search_regex`, `list_directory`, and `get_recent_changes` results also include an
+`obsidian://open` `deepLink` field per note, built from `--vault-name` (see Configuration below).
 
 ### Notes
 
@@ -223,6 +228,7 @@ Configuration follows **CLI flag > environment variable > default** precedence.
 | `--log-level` | `OBSIDIAN_LOG_LEVEL` | `warn` | One of: `debug`, `info`, `warn`, `error` (lowercase, case-sensitive). Unknown values silently fall back to `warn` — no error, no warning logged. |
 | `--read-only` | `OBSIDIAN_READ_ONLY` | `false` | CLI: bare `--read-only` enables it. Env var: same `ParseBool` rules as `--pretty`. When enabled, mutating tools (`write_note`, `delete_note`, `move_note`, etc.) are not registered — they never appear in `tools/list`. |
 | `--trash-retention-days` | `OBSIDIAN_TRASH_RETENTION_DAYS` | `30` | Integer ≥ `0`. Non-integer or negative causes a startup error. `delete_note` moves notes to `.obsidian-mcp/trash/<timestamp>/<path>` by default instead of hard-deleting; entries older than this many days are pruned once at startup. |
+| `--vault-name` | `OBSIDIAN_VAULT_NAME` | the vault directory's basename | Used to build the `obsidian://open?vault=<name>&file=<path>` deep links in `search_notes`, `search_regex`, `list_directory`, and `get_recent_changes` results. Set explicitly if the vault directory's name doesn't match the name Obsidian shows for it. |
 
 ### Examples
 

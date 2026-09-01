@@ -21,11 +21,12 @@ type dirResp struct {
 // dirEntry is the per-entry shape. size/modTime are pointers so they are nil
 // when the field is absent (concise mode).
 type dirEntry struct {
-	Name    string  `json:"name"`
-	Path    string  `json:"path"`
-	IsDir   bool    `json:"isDir"`
-	Size    *int64  `json:"size"`
-	ModTime *string `json:"modTime"`
+	Name     string  `json:"name"`
+	Path     string  `json:"path"`
+	IsDir    bool    `json:"isDir"`
+	Size     *int64  `json:"size"`
+	ModTime  *string `json:"modTime"`
+	DeepLink string  `json:"deepLink"`
 }
 
 // parseDirResp unmarshals the first text result into a dirResp.
@@ -64,6 +65,50 @@ func TestListDirectoryHandler_Root(t *testing.T) {
 		switch e.Name {
 		case ".obsidian", ".git":
 			t.Errorf("filtered entry %q appeared in listing", e.Name)
+		}
+	}
+}
+
+func TestListDirectoryHandler_DeepLink(t *testing.T) {
+	deps := testDeps(t)
+	deps.VaultName = "MyVault"
+	handler := tools.ListDirectoryHandler(deps)
+
+	result, err := handler(context.Background(), makeRequestKV("path", "Notes", "limit", 200))
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	resp := parseDirResp(t, result)
+	sawFile := false
+	for _, e := range resp.Entries {
+		if e.IsDir {
+			if e.DeepLink != "" {
+				t.Errorf("directory entry %q should not carry a deepLink", e.Path)
+			}
+			continue
+		}
+		sawFile = true
+		if e.DeepLink == "" {
+			t.Errorf("file entry %q missing deepLink when VaultName is set", e.Path)
+		}
+	}
+	if !sawFile {
+		t.Fatal("expected at least one file entry in Notes/")
+	}
+}
+
+func TestListDirectoryHandler_NoDeepLinkWithoutVaultName(t *testing.T) {
+	deps := testDeps(t) // VaultName left empty
+	handler := tools.ListDirectoryHandler(deps)
+
+	result, err := handler(context.Background(), makeRequestKV("path", "Notes", "limit", 200))
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	resp := parseDirResp(t, result)
+	for _, e := range resp.Entries {
+		if e.DeepLink != "" {
+			t.Errorf("entry %q should not carry a deepLink when VaultName is unset", e.Path)
 		}
 	}
 }

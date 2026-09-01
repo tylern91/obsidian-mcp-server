@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/tylern91/obsidian-mcp-server/internal/search"
 	"github.com/tylern91/obsidian-mcp-server/internal/tools"
 	"github.com/tylern91/obsidian-mcp-server/internal/vault"
@@ -88,6 +90,41 @@ func TestSearchNotesHandler_BasicQuery(t *testing.T) {
 			t.Errorf("result %q has non-positive score %f", r.Path, r.Score)
 		}
 	}
+}
+
+func TestSearchNotesHandler_DeepLink(t *testing.T) {
+	deps := searchDeps(t)
+	deps.VaultName = "MyVault"
+	handler := tools.SearchNotesHandler(deps)
+
+	result, err := handler(context.Background(), makeRequest("query", "machine learning"))
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+	text := extractText(t, result)
+	assert.Contains(t, text, `"deepLink":"obsidian://open?file=`)
+}
+
+func TestSearchNotesHandler_NoDeepLinkWithoutVaultName(t *testing.T) {
+	deps := searchDeps(t) // VaultName left empty
+	handler := tools.SearchNotesHandler(deps)
+
+	result, err := handler(context.Background(), makeRequest("query", "machine learning"))
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+	text := extractText(t, result)
+	assert.NotContains(t, text, "deepLink")
+}
+
+func TestSearchRegexHandler_DeepLink(t *testing.T) {
+	deps := searchDeps(t)
+	deps.VaultName = "MyVault"
+	handler := tools.SearchRegexHandler(deps)
+
+	result, err := handler(context.Background(), makeRequest("pattern", "machine", "scope", "content"))
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+	text := extractText(t, result)
+	assert.Contains(t, text, `"deepLink":"obsidian://open?file=`)
 }
 
 func TestSearchNotesHandler_QueryRequired(t *testing.T) {

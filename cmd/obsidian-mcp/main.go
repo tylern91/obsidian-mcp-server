@@ -86,6 +86,7 @@ func run(args []string) error {
 		MaxBatch:    cfg.MaxBatch,
 		MaxResults:  cfg.MaxResults,
 		ReadOnly:    cfg.ReadOnly,
+		VaultName:   cfg.VaultName,
 	})
 	prompts.RegisterAll(s, prompts.Deps{
 		Vault:    vaultSvc,
