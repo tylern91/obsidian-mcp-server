@@ -420,3 +420,162 @@ func TestMoveNoteHandler_Traversal(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
 }
+
+func TestMoveNoteHandler_DefaultUpdatesLinks(t *testing.T) {
+	deps := mutableDeps(t)
+	require.NoError(t, deps.Vault.WriteNote(context.Background(), "Linker.md", "See [[simple]] for details.\n", vault.WriteModeOverwrite))
+
+	handler := tools.MoveNoteHandler(deps)
+	result, err := handler(context.Background(), makeRequest(
+		"src", "Notes/simple.md",
+		"dst", "Archive/simple.md",
+		"confirm", "Notes/simple.md",
+	))
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+	text := extractText(t, result)
+	assert.Contains(t, text, `"moved":true`)
+	assert.Contains(t, text, `"Linker.md"`)
+
+	note, err := deps.Vault.ReadNote(context.Background(), "Linker.md")
+	require.NoError(t, err)
+	assert.Contains(t, note.Content, "[[simple]]", "with 5 pre-existing links to \"simple\" in the fixture, the ambiguity guard leaves this bare wikilink untouched")
+}
+
+func TestMoveNoteHandler_DryRunMovesNothing(t *testing.T) {
+	deps := mutableDeps(t)
+	handler := tools.MoveNoteHandler(deps)
+	result, err := handler(context.Background(), makeRequestMixed(
+		"src", "Notes/simple.md",
+		"dst", "Archive/simple.md",
+		"confirm", "Notes/simple.md",
+		"dryRun", true,
+	))
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+	text := extractText(t, result)
+	assert.Contains(t, text, `"moved":false`)
+
+	_, err = deps.Vault.ReadNote(context.Background(), "Notes/simple.md")
+	require.NoError(t, err, "dry run must not move the source note")
+}
+
+func TestMoveNoteHandler_UpdateLinksFalseSkipsRewrite(t *testing.T) {
+	deps := mutableDeps(t)
+	require.NoError(t, deps.Vault.WriteNote(context.Background(), "Linker.md", "See [[simple]] for details.\n", vault.WriteModeOverwrite))
+
+	handler := tools.MoveNoteHandler(deps)
+	result, err := handler(context.Background(), makeRequestMixed(
+		"src", "Notes/simple.md",
+		"dst", "Archive/simple.md",
+		"confirm", "Notes/simple.md",
+		"updateLinks", false,
+	))
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+	text := extractText(t, result)
+	assert.Contains(t, text, `"moved":true`)
+	assert.NotContains(t, text, `"links"`)
+
+	note, err := deps.Vault.ReadNote(context.Background(), "Linker.md")
+	require.NoError(t, err)
+	assert.Contains(t, note.Content, "[[simple]]", "updateLinks=false must leave other notes untouched")
+}
+
+// --- rename_tag ---
+
+func TestRenameTagHandler_RenamesAcrossVault(t *testing.T) {
+	deps := mutableDeps(t)
+	require.NoError(t, deps.Vault.WriteNote(context.Background(), "Notes/withtag.md", "# Body\n\n#origtag here\n", vault.WriteModeOverwrite))
+
+	handler := tools.RenameTagHandler(deps)
+	result, err := handler(context.Background(), makeRequest(
+		"oldTag", "origtag",
+		"newTag", "renamedtag",
+	))
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+	text := extractText(t, result)
+	assert.Contains(t, text, `"oldTag":"origtag"`)
+	assert.Contains(t, text, `"newTag":"renamedtag"`)
+	assert.Contains(t, text, `"Notes/withtag.md"`)
+
+	note, err := deps.Vault.ReadNote(context.Background(), "Notes/withtag.md")
+	require.NoError(t, err)
+	assert.Contains(t, note.Content, "#renamedtag")
+}
+
+func TestRenameTagHandler_RequiredParams(t *testing.T) {
+	deps := testDeps(t)
+	handler := tools.RenameTagHandler(deps)
+
+	result, err := handler(context.Background(), makeRequest("newTag", "x"))
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+
+	result, err = handler(context.Background(), makeRequest("oldTag", "x"))
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+}
+
+// --- replace_in_note ---
+
+func TestReplaceInNoteHandler_LiteralReplace(t *testing.T) {
+	deps := mutableDeps(t)
+	require.NoError(t, deps.Vault.WriteNote(context.Background(), "Notes/replaceme.md", "foo bar foo\n", vault.WriteModeOverwrite))
+
+	handler := tools.ReplaceInNoteHandler(deps)
+	result, err := handler(context.Background(), makeRequest(
+		"path", "Notes/replaceme.md",
+		"pattern", "foo",
+		"replacement", "qux",
+	))
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+	text := extractText(t, result)
+	assert.Contains(t, text, `"occurrencesFound":2`)
+	assert.Contains(t, text, `"replaced":2`)
+
+	note, err := deps.Vault.ReadNote(context.Background(), "Notes/replaceme.md")
+	require.NoError(t, err)
+	assert.Equal(t, "qux bar qux\n", note.Content)
+}
+
+func TestReplaceInNoteHandler_MaxOccurrencesCap(t *testing.T) {
+	deps := mutableDeps(t)
+	require.NoError(t, deps.Vault.WriteNote(context.Background(), "Notes/capped.md", "x x x\n", vault.WriteModeOverwrite))
+
+	handler := tools.ReplaceInNoteHandler(deps)
+	result, err := handler(context.Background(), makeRequestMixed(
+		"path", "Notes/capped.md",
+		"pattern", "x",
+		"replacement", "y",
+		"maxOccurrences", 1,
+	))
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+	text := extractText(t, result)
+	assert.Contains(t, text, `"occurrencesFound":3`)
+	assert.Contains(t, text, `"replaced":1`)
+}
+
+func TestReplaceInNoteHandler_InvalidRegex(t *testing.T) {
+	deps := mutableDeps(t)
+	handler := tools.ReplaceInNoteHandler(deps)
+	result, err := handler(context.Background(), makeRequestMixed(
+		"path", "Notes/simple.md",
+		"pattern", "(unclosed",
+		"replacement", "x",
+		"isRegex", true,
+	))
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+}
+
+func TestReplaceInNoteHandler_RequiredParams(t *testing.T) {
+	deps := testDeps(t)
+	handler := tools.ReplaceInNoteHandler(deps)
+	result, err := handler(context.Background(), makeRequest("pattern", "x", "replacement", "y"))
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+}

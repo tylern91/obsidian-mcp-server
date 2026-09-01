@@ -319,8 +319,9 @@ func TestService_MoveNote(t *testing.T) {
 
 	t.Run("move to new path", func(t *testing.T) {
 		svc := newTempVault(t)
-		err := svc.MoveNote(ctx, "Notes/simple.md", "Archive/simple.md", "Notes/simple.md")
+		result, err := svc.MoveNote(ctx, "Notes/simple.md", "Archive/simple.md", "Notes/simple.md", false, false)
 		require.NoError(t, err)
+		assert.True(t, result.Moved)
 
 		_, err = svc.ReadNote(ctx, "Notes/simple.md")
 		assert.True(t, errors.Is(err, vault.ErrNotFound), "src should be gone")
@@ -332,37 +333,77 @@ func TestService_MoveNote(t *testing.T) {
 
 	t.Run("confirm mismatch", func(t *testing.T) {
 		svc := newTempVault(t)
-		err := svc.MoveNote(ctx, "Notes/simple.md", "Archive/simple.md", "wrong.md")
+		_, err := svc.MoveNote(ctx, "Notes/simple.md", "Archive/simple.md", "wrong.md", false, false)
 		require.Error(t, err)
 		assert.True(t, errors.Is(err, vault.ErrConfirmMismatch))
 	})
 
 	t.Run("dst already exists", func(t *testing.T) {
 		svc := newTempVault(t)
-		err := svc.MoveNote(ctx, "Notes/simple.md", "Notes/with-fm.md", "Notes/simple.md")
+		_, err := svc.MoveNote(ctx, "Notes/simple.md", "Notes/with-fm.md", "Notes/simple.md", false, false)
 		require.Error(t, err)
 		assert.True(t, errors.Is(err, vault.ErrAlreadyExists))
 	})
 
 	t.Run("src not found", func(t *testing.T) {
 		svc := newTempVault(t)
-		err := svc.MoveNote(ctx, "Notes/ghost.md", "Archive/ghost.md", "Notes/ghost.md")
+		_, err := svc.MoveNote(ctx, "Notes/ghost.md", "Archive/ghost.md", "Notes/ghost.md", false, false)
 		require.Error(t, err)
 		assert.True(t, errors.Is(err, vault.ErrNotFound))
 	})
 
 	t.Run("src path traversal rejected", func(t *testing.T) {
 		svc := newTempVault(t)
-		err := svc.MoveNote(ctx, "../escape.md", "Notes/escape.md", "../escape.md")
+		_, err := svc.MoveNote(ctx, "../escape.md", "Notes/escape.md", "../escape.md", false, false)
 		require.Error(t, err)
 		assert.True(t, errors.Is(err, vault.ErrPathTraversal))
 	})
 
 	t.Run("dst path traversal rejected", func(t *testing.T) {
 		svc := newTempVault(t)
-		err := svc.MoveNote(ctx, "Notes/simple.md", "../escape.md", "Notes/simple.md")
+		_, err := svc.MoveNote(ctx, "Notes/simple.md", "../escape.md", "Notes/simple.md", false, false)
 		require.Error(t, err)
 		assert.True(t, errors.Is(err, vault.ErrPathTraversal))
+	})
+
+	t.Run("dry run moves nothing and rewrites nothing", func(t *testing.T) {
+		svc := newTempVault(t)
+		require.NoError(t, svc.WriteNote(ctx, "Linker.md", "See [[simple]] for details.\n", vault.WriteModeOverwrite))
+
+		result, err := svc.MoveNote(ctx, "Notes/simple.md", "Archive/simple.md", "Notes/simple.md", true, true)
+		require.NoError(t, err)
+		assert.False(t, result.Moved)
+
+		var linkerRewrite *vault.LinkRewrite
+		for i := range result.Links {
+			if result.Links[i].Path == "Linker.md" {
+				linkerRewrite = &result.Links[i]
+				break
+			}
+		}
+		require.NotNil(t, linkerRewrite, "expected a reported rewrite for Linker.md")
+		assert.Equal(t, "[[simple]]", linkerRewrite.NewText, "dry run still reports the intended rewrite")
+
+		// Nothing on disk actually changed.
+		_, err = svc.ReadNote(ctx, "Notes/simple.md")
+		require.NoError(t, err, "src must still exist after a dry run")
+		linker, err := svc.ReadNote(ctx, "Linker.md")
+		require.NoError(t, err)
+		assert.Contains(t, linker.Content, "[[simple]]", "link must be unchanged on disk after a dry run")
+	})
+
+	t.Run("updateLinks false performs the move without touching other notes", func(t *testing.T) {
+		svc := newTempVault(t)
+		require.NoError(t, svc.WriteNote(ctx, "Linker.md", "See [[simple]] for details.\n", vault.WriteModeOverwrite))
+
+		result, err := svc.MoveNote(ctx, "Notes/simple.md", "Archive/simple.md", "Notes/simple.md", false, false)
+		require.NoError(t, err)
+		assert.True(t, result.Moved)
+		assert.Nil(t, result.Links)
+
+		linker, err := svc.ReadNote(ctx, "Linker.md")
+		require.NoError(t, err)
+		assert.Contains(t, linker.Content, "[[simple]]", "link must be left untouched when updateLinks is false")
 	})
 
 	// Concurrent moves to the same dst must not both succeed: the dst-exists
@@ -379,7 +420,8 @@ func TestService_MoveNote(t *testing.T) {
 		for i := 0; i < 2; i++ {
 			go func(i int) {
 				defer wg.Done()
-				errs[i] = svc.MoveNote(ctx, srcs[i], "Archive/winner.md", srcs[i])
+				_, err := svc.MoveNote(ctx, srcs[i], "Archive/winner.md", srcs[i], false, false)
+				errs[i] = err
 			}(i)
 		}
 		wg.Wait()

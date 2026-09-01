@@ -23,7 +23,7 @@ go test -race ./internal/vault/ -run TestSanitizePath -v
 
 ## Architecture
 
-**Request flow** (`cmd/obsidian-mcp/main.go`): wires `vault.New(...)`, `search.New(vaultSvc)`, `periodic.New(...)` into a single `tools.Deps` struct, then `tools.RegisterAll(server, deps)` registers 22 mcp-go `ToolHandlerFunc` closures. Stdio transport via `mcpserver.ServeStdio(s)`.
+**Request flow** (`cmd/obsidian-mcp/main.go`): wires `vault.New(...)`, `search.New(vaultSvc)`, `periodic.New(...)` into a single `tools.Deps` struct, then `tools.RegisterAll(server, deps)` registers 24 mcp-go `ToolHandlerFunc` closures. Stdio transport via `mcpserver.ServeStdio(s)`.
 
 **Key seam**: `tools.VaultService` / `tools.SearchService` / `tools.PeriodicService` interfaces live in `internal/tools/registration.go` (consumer-side), so tests can mock them. Concrete types live in `internal/vault`, `internal/search`, `internal/periodic`.
 
@@ -36,7 +36,7 @@ go test -race ./internal/vault/ -run TestSanitizePath -v
 - `internal/vault/` — `vault.Service` (path security, CRUD, frontmatter, tags, links); 16 MB read/write cap
 - `internal/search/` — per-query BM25 (no persistent index), regex/glob; Okapi BM25 with title boost + bigram phrase bonus
 - `internal/periodic/` — daily/weekly/etc. note resolution; reads `.obsidian/plugins/periodic-notes/data.json`
-- `internal/tools/` — 22 MCP tool registrations, grouped by theme (`notes.go`, `search.go`, `batch.go`, `tags.go`, …)
+- `internal/tools/` — 24 MCP tool registrations, grouped by theme (`notes.go`, `search.go`, `batch.go`, `tags.go`, `renametag.go`, `replace.go`, …)
 - `internal/response/` — single canonical `FormatJSON`; `CountTokens` (cl100k_base via tiktoken-go); rune-safe truncation
 - `internal/prompts/` — MCP prompt templates
 - `internal/version/` — single `const Version` (hand-edited per release; not ldflags-injected)

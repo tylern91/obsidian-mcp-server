@@ -44,6 +44,8 @@ func TestAllSpecs(t *testing.T) {
 		"audit_notes":               false,
 		"get_note_outline":          false,
 		"read_note_lines":           false,
+		"rename_tag":                true,
+		"replace_in_note":           true,
 	}
 
 	deps := registrationTestDeps(t)

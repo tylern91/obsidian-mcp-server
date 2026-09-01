@@ -229,35 +229,75 @@ func (s *Service) PruneTrash(now time.Time, retentionDays int) (int, error) {
 	return removed, nil
 }
 
+// MoveResult is the outcome of MoveNote, including any inbound-link rewrites.
+type MoveResult struct {
+	Src, Dst string
+	Moved    bool          // false only when dryRun
+	Links    []LinkRewrite // link rewrites found/applied; nil if updateLinks is false
+}
+
 // MoveNote moves a note from src to dst within the vault.
 // confirm must equal src exactly, otherwise ErrConfirmMismatch is returned.
 // Returns ErrAlreadyExists if dst already exists.
 // Note: confirm binds to src only; a typo in dst moves the note to the wrong location.
-func (s *Service) MoveNote(ctx context.Context, src, dst, confirm string) error {
+//
+// When updateLinks is true, inbound links to src found elsewhere in the
+// vault are rewritten to point at dst (see RewriteLinksOnMove) — ambiguous
+// targets are reported, never guessed at. When dryRun is true, nothing on
+// disk changes (no move, no link rewrite) — the result previews what would
+// happen.
+func (s *Service) MoveNote(ctx context.Context, src, dst, confirm string, updateLinks, dryRun bool) (*MoveResult, error) {
 	if err := ctx.Err(); err != nil {
-		return &PathError{Op: "move", Path: src, Err: err}
+		return nil, &PathError{Op: "move", Path: src, Err: err}
 	}
 
 	if confirm != src {
-		return &PathError{Op: "move", Path: src, Err: ErrConfirmMismatch}
+		return nil, &PathError{Op: "move", Path: src, Err: ErrConfirmMismatch}
 	}
 
 	_, srcAbs, err := s.sanitizePath("move", src)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	_, dstAbs, err := s.sanitizePath("move", dst)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
+	if dryRun {
+		if _, statErr := os.Stat(dstAbs); statErr == nil {
+			return nil, &PathError{Op: "move", Path: dst, Err: ErrAlreadyExists}
+		}
+		if _, statErr := os.Stat(srcAbs); statErr != nil {
+			if os.IsNotExist(statErr) {
+				return nil, &PathError{Op: "move", Path: src, Err: ErrNotFound}
+			}
+			return nil, &PathError{Op: "move", Path: src, Err: statErr}
+		}
+	} else if err := s.moveFileLocked(src, srcAbs, dst, dstAbs); err != nil {
+		return nil, err
+	}
+
+	result := &MoveResult{Src: src, Dst: dst, Moved: !dryRun}
+	if updateLinks {
+		links, linkErr := s.RewriteLinksOnMove(ctx, src, dst, dryRun)
+		if linkErr != nil {
+			return result, linkErr
+		}
+		result.Links = links
+	}
+	return result, nil
+}
+
+// moveFileLocked performs the actual rename under s.mu, preserving the
+// existing dst-exists-check-then-rename critical section: two concurrent
+// moves to the same dst must not both pass the check and both os.Rename,
+// silently clobbering one of the notes.
+func (s *Service) moveFileLocked(src, srcAbs, dst, dstAbs string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Check dst does not already exist. Must run inside the lock: two
-	// concurrent moves to the same dst could otherwise both pass this check
-	// and both os.Rename, silently clobbering one of the notes.
 	if _, statErr := os.Stat(dstAbs); statErr == nil {
 		return &PathError{Op: "move", Path: dst, Err: ErrAlreadyExists}
 	}

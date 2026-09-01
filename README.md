@@ -36,7 +36,7 @@ A Go [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server for 
 | `get_backlinks` | Find all notes that link to a target note | `path` (required), `prettyPrint` |
 | `patch_note` | Apply a heading-anchored patch to a note | `path`, `heading`, `position`: before/after/replace_body, `content` (all required) |
 | `delete_note` | Move a note to `.obsidian-mcp/trash` (requires confirm); pass `permanent: true` to hard-delete instead | `path`, `confirm` (must match path exactly), `permanent` (optional, default false) |
-| `move_note` | Move or rename a note within the vault (requires confirm) | `src`, `dst`, `confirm` (must match src exactly) |
+| `move_note` | Move or rename a note within the vault (requires confirm); rewrites unambiguous inbound links by default | `src`, `dst`, `confirm` (must match src exactly), `updateLinks` (bool, default true), `dryRun` (bool, default false) |
 | `search_notes` | BM25 full-text search with ranked results and match snippets | `query` (required), `limit`, `maxMatchesPerFile`, `caseSensitive`, `searchContent`, `searchFrontmatter`, `pathScope`, `prettyPrint` |
 | `search_regex` | Search using RE2 regex or glob pattern | `pattern` (required), `isGlob`, `scope`, `limit`, `maxMatchesPerFile`, `prettyPrint` |
 | `read_multiple_notes` | Read the content of multiple notes in a single request | `paths` (required, JSON array), `summary` (bool, default false), `headChars` (int, default 200) |
@@ -48,6 +48,8 @@ A Go [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server for 
 | `audit_notes` | Audit the vault for hygiene issues: orphans, dangling links, untagged notes, duplicate titles | `classes` (JSON array: orphans/dangling-links/untagged/duplicate-titles, default all), `limit` (int per class, default 20) |
 | `get_note_outline` | Return a note's heading tree (level, text, line number) without its body | `path` (required), `prettyPrint` |
 | `read_note_lines` | Read a bounded range of lines from a note | `path`, `startLine` (required), `lineCount` (int, default 200, capped at 2000) |
+| `rename_tag` | Rename a tag vault-wide, across frontmatter and inline occurrences | `oldTag`, `newTag` (both required) |
+| `replace_in_note` | Scoped search-and-replace within a single note, literal or regex | `path`, `pattern`, `replacement` (all required), `isRegex` (bool, default false), `maxOccurrences` (int, default 0 = unbounded) |
 
 `search_notes`, `search_regex`, `list_directory`, and `get_recent_changes` results also include an
 `obsidian://open` `deepLink` field per note, built from `--vault-name` (see Configuration below).
