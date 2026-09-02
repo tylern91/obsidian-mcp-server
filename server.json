@@ -1,0 +1,33 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.tylern91/obsidian-mcp-server",
+  "description": "Filesystem-based MCP server for Obsidian vaults — read, search, and edit notes with no Obsidian app dependency.",
+  "title": "Obsidian MCP Server",
+  "websiteUrl": "https://github.com/tylern91/obsidian-mcp-server",
+  "repository": {
+    "url": "https://github.com/tylern91/obsidian-mcp-server",
+    "source": "github"
+  },
+  "version": "0.2.0",
+  "packages": [
+    {
+      "registryType": "mcpb",
+      "registryBaseUrl": "https://github.com",
+      "identifier": "tylern91/obsidian-mcp-server/releases/download/v0.2.0/obsidian-mcp-v0.2.0.mcpb",
+      "version": "0.2.0",
+      "fileSha256": "REPLACE_WITH_RELEASE_MCPB_SHA256",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "named",
+          "name": "--vault",
+          "description": "Absolute path to the Obsidian vault to serve.",
+          "isRequired": true,
+          "format": "filepath"
+        }
+      ]
+    }
+  ]
+}

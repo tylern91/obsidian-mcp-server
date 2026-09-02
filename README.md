@@ -137,6 +137,25 @@ Static resources (`obsidian://vault/*`) are always available in the resource pic
 
 ## Installation
 
+### Install script
+
+Downloads the right binary for your OS/architecture, verifies its checksum, and installs it to
+`~/.local/bin` (override with a second argument):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tylern91/obsidian-mcp-server/main/install.sh | sh
+```
+
+Pin a version instead of `latest`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tylern91/obsidian-mcp-server/main/install.sh | sh -s -- v0.2.0
+```
+
+### Claude Desktop (.mcpb bundle)
+
+Download `obsidian-mcp-<version>.mcpb` from the [latest release](https://github.com/tylern91/obsidian-mcp-server/releases/latest) and double-click it — Claude Desktop installs the extension and prompts for your vault path. No manual JSON editing.
+
 ### Release binary
 
 Download a prebuilt binary from the [latest release](https://github.com/tylern91/obsidian-mcp-server/releases/latest), verify its checksum, and install:
@@ -204,6 +223,19 @@ Add to `claude_desktop_config.json`:
   }
 }
 ```
+
+### Cursor
+
+[![Install MCP Server](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/en/install-mcp?name=obsidian&config=eyJjb21tYW5kIjoib2JzaWRpYW4tbWNwIiwiYXJncyI6WyItLXZhdWx0IiwiL3BhdGgvdG8veW91ci92YXVsdCJdfQ%3D%3D)
+
+Edit the vault path after install — the deeplink can't know it in advance.
+
+### VS Code
+
+[![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_Server-0098FF?style=flat-square&logo=visualstudiocode&logoColor=white)](https://vscode.dev/redirect/mcp/install?name=obsidian&config=%7B%22command%22%3A%22obsidian-mcp%22%2C%22args%22%3A%5B%22--vault%22%2C%22%2Fpath%2Fto%2Fyour%2Fvault%22%5D%7D)
+[![Install in VS Code Insiders](https://img.shields.io/badge/VS_Code_Insiders-Install_Server-24bfa5?style=flat-square&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=obsidian&config=%7B%22command%22%3A%22obsidian-mcp%22%2C%22args%22%3A%5B%22--vault%22%2C%22%2Fpath%2Fto%2Fyour%2Fvault%22%5D%7D)
+
+Edit the vault path after install — the deeplink can't know it in advance.
 
 ### Direct
 
