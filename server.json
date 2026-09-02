@@ -12,8 +12,7 @@
   "packages": [
     {
       "registryType": "mcpb",
-      "registryBaseUrl": "https://github.com",
-      "identifier": "tylern91/obsidian-mcp-server/releases/download/v0.3.0/obsidian-mcp-v0.3.0.mcpb",
+      "identifier": "https://github.com/tylern91/obsidian-mcp-server/releases/download/v0.3.0/obsidian-mcp-v0.3.0.mcpb",
       "version": "0.3.0",
       "fileSha256": "0305a1e67b2b7ca3a8b6306c64299ca41c52754e3a92814d065d091d91b7cac6",
       "transport": {
