@@ -120,6 +120,36 @@ jobs:
             "${{ steps.pkg.outputs.asset }}" "${{ steps.pkg.outputs.asset }}.sha256" \
             --clobber --repo "${{ github.repository }}"
 
+  build-mcpb:
+    needs: upload-assets
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.version }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Build .mcpb bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/build-mcpb.sh "${{ inputs.version }}" dist
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          gh release upload "$VERSION" \
+            "dist/obsidian-mcp-${VERSION}.mcpb" "dist/obsidian-mcp-${VERSION}.mcpb.sha256" \
+            --clobber --repo "${{ github.repository }}"
+
   finalize-notes:
     needs: upload-assets
     if: inputs.refresh_notes

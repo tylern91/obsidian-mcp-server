@@ -1,0 +1,47 @@
+{
+  "manifest_version": "0.3",
+  "name": "obsidian-mcp",
+  "display_name": "Obsidian MCP Server",
+  "version": "__VERSION__",
+  "description": "Filesystem-based MCP server for Obsidian vaults — read, search, and edit notes with no Obsidian app dependency.",
+  "long_description": "A single static Go binary exposing Obsidian vault operations (notes, tags, links, search, periodic notes) over the Model Context Protocol. No Node, Python, or Obsidian install required.",
+  "author": {
+    "name": "tylern91",
+    "url": "https://github.com/tylern91"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tylern91/obsidian-mcp-server.git"
+  },
+  "homepage": "https://github.com/tylern91/obsidian-mcp-server",
+  "documentation": "https://github.com/tylern91/obsidian-mcp-server#readme",
+  "support": "https://github.com/tylern91/obsidian-mcp-server/issues",
+  "license": "Apache-2.0",
+  "keywords": ["obsidian", "mcp", "model-context-protocol", "knowledge-management", "notes"],
+  "server": {
+    "type": "binary",
+    "entry_point": "server/launch.sh",
+    "mcp_config": {
+      "command": "${__dirname}/server/launch.sh",
+      "args": ["--vault", "${user_config.vault_path}"],
+      "env": {},
+      "platform_overrides": {
+        "win32": {
+          "command": "${__dirname}/server/obsidian-mcp-windows-amd64",
+          "args": ["--vault", "${user_config.vault_path}"]
+        }
+      }
+    }
+  },
+  "user_config": {
+    "vault_path": {
+      "type": "directory",
+      "title": "Obsidian Vault",
+      "description": "Path to the Obsidian vault this server should read and write.",
+      "required": true
+    }
+  },
+  "compatibility": {
+    "platforms": ["darwin", "win32", "linux"]
+  }
+}

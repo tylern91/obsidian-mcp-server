@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `install.sh` — curl-to-shell installer that resolves the right release asset for the caller's
+  OS/architecture, verifies its checksum, and installs it to `~/.local/bin` (overridable).
+- `.mcpb` bundle for one-click Claude Desktop install, built by `scripts/build-mcpb.sh` and
+  published as a release asset via the new `build-mcpb` job in `publish-assets.yml`. The bundle
+  packs all five release binaries behind a runtime arch-dispatch wrapper (`packaging/mcpb/launch.sh`)
+  so darwin/linux resolve `arm64`/`amd64` at install time; Windows is pointed directly at its
+  amd64 binary via `manifest.json`'s `platform_overrides`.
+- `server.json` for the MCP registry (not yet submitted to the live registry).
+- Cursor and VS Code one-click install badges in the README, using the config formats verified
+  against `upstash/context7` and `github/github-mcp-server`'s own published badges.
+
 ## [0.2.0] - 2026-09-02
 
 ### Added
