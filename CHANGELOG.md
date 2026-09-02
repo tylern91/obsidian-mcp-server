@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `server.json` was left pointing at the `v0.2.0` `.mcpb` asset with a placeholder
+  `fileSha256`, from before the `v0.3.0` release actually built and published that bundle.
+  Synced to the real `v0.3.0` asset URL and its published SHA-256.
+
 ## [0.3.0] - 2026-09-02
 
 ### Added
