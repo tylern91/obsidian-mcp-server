@@ -57,8 +57,44 @@ The security-relevant guarantees, in `internal/vault/`:
 
 ## HTTP transport
 
-Not yet implemented. This server currently speaks MCP over stdio only —
-there is no network listener, so there is no remote attack surface beyond
-the local process boundary described above. When an HTTP transport is
-added, its authentication and default-bind posture will be documented here
-as a secured default, not deferred to a "known limitation" note.
+`--transport http` starts a Streamable HTTP listener (`internal/httptransport/`)
+in addition to the default stdio transport. It is secured by default:
+
+- **Loopback-only unless explicitly widened.** The listener refuses to bind
+  a non-loopback address unless `--allow-non-loopback` is passed together
+  with non-empty `--allowed-hosts` and `--allowed-origins` — an explicit,
+  three-flag confirmation gate, not a single switch.
+- **TLS by default, TLS 1.3 minimum.** A self-signed certificate and key
+  are generated on first run and persisted (0600) under the OS user config
+  directory (`os.UserConfigDir()/obsidian-mcp`) — **never under the vault
+  path**, since a key stored there would be exfiltratable through the very
+  read/search API it protects. Because TLS is always on, Go negotiates
+  HTTP/2 via ALPN for free; there is no plaintext fallback.
+- **Bearer token authentication.** A 32-byte token (`crypto/rand`) is
+  generated on first run and written to a 0600 file in the same state
+  directory. It is never printed to stderr and has no `--auth-token
+  <value>` flag form (both would leak it — log persistence and
+  `/proc/<pid>/cmdline`/`ps` respectively); `OBSIDIAN_AUTH_TOKEN` is
+  available as an explicit opt-in override. Only the token file's path and
+  `sha256(token)[:8]` are ever logged. Comparison hashes both sides to a
+  fixed width before `subtle.ConstantTimeCompare`, so a length mismatch
+  can't be timed.
+- **Sessions are bound to their issuing credential.** The custom
+  `SessionIdManager` (`internal/httptransport/session.go`) rejects a
+  session ID presented with a different bearer token or client
+  certificate than the one that created it.
+- **Optional mutual TLS** via `--client-ca <path>`, enforced with
+  `tls.RequireAndVerifyClientCert` — never the fail-open
+  `VerifyClientCertIfGiven`.
+- **Request bodies are capped** before authentication or handler logic
+  runs, and Host/Origin are checked against the configured allowlists
+  before any body is read.
+- **No secrets in logs, ever**, including at `--log-level debug`: the
+  Authorization header and request/response bodies are never logged.
+  Stdout stays reserved for JSON-RPC; all listener logs go to stderr.
+
+**Caveat:** the certificate is self-signed and not issued by a public CA.
+A client connecting for the first time has no independent way to confirm
+it's talking to the right server beyond a manual fingerprint or SPKI pin
+check outside this document's scope — treat the generated cert the same
+way you'd treat an SSH host key on first connect.

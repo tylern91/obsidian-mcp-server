@@ -402,6 +402,242 @@ func TestLoad_VersionFlagIgnoresOtherInvalidFlags(t *testing.T) {
 	}
 }
 
+func TestLoad_TransportDefaultsToStdio(t *testing.T) {
+	vault := t.TempDir()
+	cfg, err := config.Load([]string{"--vault", vault})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Transport != "stdio" {
+		t.Errorf("Transport = %q, want %q", cfg.Transport, "stdio")
+	}
+}
+
+func TestLoad_TransportExplicitHTTP(t *testing.T) {
+	vault := t.TempDir()
+	cfg, err := config.Load([]string{"--vault", vault, "--transport", "http"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Transport != "http" {
+		t.Errorf("Transport = %q, want %q", cfg.Transport, "http")
+	}
+}
+
+func TestLoad_TransportRejectsInvalidValue(t *testing.T) {
+	vault := t.TempDir()
+	_, err := config.Load([]string{"--vault", vault, "--transport", "tcp"})
+	if err == nil {
+		t.Fatal("expected error for invalid transport, got nil")
+	}
+	wantMsg := `transport must be "stdio" or "http", got "tcp"`
+	if err.Error() != wantMsg {
+		t.Errorf("error = %q, want %q", err.Error(), wantMsg)
+	}
+}
+
+func TestLoad_TransportRejectsInvalidValue_grpc(t *testing.T) {
+	vault := t.TempDir()
+	_, err := config.Load([]string{"--vault", vault, "--transport", "grpc"})
+	if err == nil {
+		t.Fatal("expected error for invalid transport, got nil")
+	}
+	wantMsg := `transport must be "stdio" or "http", got "grpc"`
+	if err.Error() != wantMsg {
+		t.Errorf("error = %q, want %q", err.Error(), wantMsg)
+	}
+}
+
+func TestLoad_HTTPBindAndPortDefaults(t *testing.T) {
+	vault := t.TempDir()
+	cfg, err := config.Load([]string{"--vault", vault, "--transport", "http"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.HTTPBind != "127.0.0.1" {
+		t.Errorf("HTTPBind = %q, want %q", cfg.HTTPBind, "127.0.0.1")
+	}
+	if cfg.HTTPPort != 8443 {
+		t.Errorf("HTTPPort = %d, want 8443", cfg.HTTPPort)
+	}
+}
+
+func TestLoad_HTTPPortRangeValidation(t *testing.T) {
+	tests := []struct {
+		name string
+		port string
+	}{
+		{"zero", "0"},
+		{"negative", "-1"},
+		{"too large", "65536"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			vault := t.TempDir()
+			_, err := config.Load([]string{"--vault", vault, "--transport", "http", "--http-port", tt.port})
+			if err == nil {
+				t.Fatalf("expected error for http-port %s, got nil", tt.port)
+			}
+			if !strings.Contains(err.Error(), "http-port must be between 1 and 65535") {
+				t.Errorf("error = %q, want it to mention the http-port range", err.Error())
+			}
+		})
+	}
+}
+
+func TestLoad_HTTPPortValidationOnlyAppliesToHTTPTransport(t *testing.T) {
+	vault := t.TempDir()
+	cfg, err := config.Load([]string{"--vault", vault, "--http-port", "0"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v (an out-of-range http-port must not error under --transport stdio)", err)
+	}
+	if cfg.HTTPPort != 0 {
+		t.Errorf("HTTPPort = %d, want 0 (unvalidated under stdio transport)", cfg.HTTPPort)
+	}
+}
+
+func TestLoad_AllowNonLoopbackRequiresAllowedHosts(t *testing.T) {
+	vault := t.TempDir()
+	_, err := config.Load([]string{
+		"--vault", vault,
+		"--transport", "http",
+		"--allow-non-loopback",
+		"--allowed-origins", "https://app.example.com",
+	})
+	if err == nil {
+		t.Fatal("expected error when --allowed-hosts is missing, got nil")
+	}
+	wantMsg := "--allow-non-loopback requires --allowed-hosts to be set"
+	if err.Error() != wantMsg {
+		t.Errorf("error = %q, want %q", err.Error(), wantMsg)
+	}
+}
+
+func TestLoad_AllowNonLoopbackRequiresAllowedOrigins(t *testing.T) {
+	vault := t.TempDir()
+	_, err := config.Load([]string{
+		"--vault", vault,
+		"--transport", "http",
+		"--allow-non-loopback",
+		"--allowed-hosts", "internal.example.com",
+	})
+	if err == nil {
+		t.Fatal("expected error when --allowed-origins is missing, got nil")
+	}
+	wantMsg := "--allow-non-loopback requires --allowed-origins to be set"
+	if err.Error() != wantMsg {
+		t.Errorf("error = %q, want %q", err.Error(), wantMsg)
+	}
+}
+
+func TestLoad_AllowNonLoopbackSucceedsWithBothAllowlists(t *testing.T) {
+	vault := t.TempDir()
+	cfg, err := config.Load([]string{
+		"--vault", vault,
+		"--transport", "http",
+		"--allow-non-loopback",
+		"--allowed-hosts", "internal.example.com",
+		"--allowed-origins", "https://app.example.com",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cfg.AllowNonLoopback {
+		t.Error("AllowNonLoopback = false, want true")
+	}
+	wantHosts := []string{"internal.example.com"}
+	if !slicesEqual(cfg.AllowedHosts, wantHosts) {
+		t.Errorf("AllowedHosts = %v, want %v", cfg.AllowedHosts, wantHosts)
+	}
+	wantOrigins := []string{"https://app.example.com"}
+	if !slicesEqual(cfg.AllowedOrigins, wantOrigins) {
+		t.Errorf("AllowedOrigins = %v, want %v", cfg.AllowedOrigins, wantOrigins)
+	}
+}
+
+func TestLoad_ClientCAPathDefaultsEmpty(t *testing.T) {
+	vault := t.TempDir()
+	cfg, err := config.Load([]string{"--vault", vault})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.ClientCAPath != "" {
+		t.Errorf("ClientCAPath = %q, want empty", cfg.ClientCAPath)
+	}
+}
+
+func TestLoad_ClientCAPathFromFlag(t *testing.T) {
+	vault := t.TempDir()
+	cfg, err := config.Load([]string{"--vault", vault, "--client-ca", "/path/to/ca.pem"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.ClientCAPath != "/path/to/ca.pem" {
+		t.Errorf("ClientCAPath = %q, want %q", cfg.ClientCAPath, "/path/to/ca.pem")
+	}
+}
+
+func TestLoad_Phase6EnvVarOverrides(t *testing.T) {
+	vault := t.TempDir()
+	t.Setenv("OBSIDIAN_VAULT_PATH", vault)
+	t.Setenv("OBSIDIAN_TRANSPORT", "http")
+	t.Setenv("OBSIDIAN_HTTP_BIND", "0.0.0.0")
+	t.Setenv("OBSIDIAN_HTTP_PORT", "9443")
+	t.Setenv("OBSIDIAN_ALLOW_NON_LOOPBACK", "true")
+	t.Setenv("OBSIDIAN_ALLOWED_HOSTS", "internal.example.com,other.example.com")
+	t.Setenv("OBSIDIAN_ALLOWED_ORIGINS", "https://app.example.com")
+	t.Setenv("OBSIDIAN_CLIENT_CA", "/path/to/ca.pem")
+
+	cfg, err := config.Load([]string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Transport != "http" {
+		t.Errorf("Transport = %q, want %q", cfg.Transport, "http")
+	}
+	if cfg.HTTPBind != "0.0.0.0" {
+		t.Errorf("HTTPBind = %q, want %q", cfg.HTTPBind, "0.0.0.0")
+	}
+	if cfg.HTTPPort != 9443 {
+		t.Errorf("HTTPPort = %d, want 9443", cfg.HTTPPort)
+	}
+	if !cfg.AllowNonLoopback {
+		t.Error("AllowNonLoopback = false, want true")
+	}
+	wantHosts := []string{"internal.example.com", "other.example.com"}
+	if !slicesEqual(cfg.AllowedHosts, wantHosts) {
+		t.Errorf("AllowedHosts = %v, want %v", cfg.AllowedHosts, wantHosts)
+	}
+	wantOrigins := []string{"https://app.example.com"}
+	if !slicesEqual(cfg.AllowedOrigins, wantOrigins) {
+		t.Errorf("AllowedOrigins = %v, want %v", cfg.AllowedOrigins, wantOrigins)
+	}
+	if cfg.ClientCAPath != "/path/to/ca.pem" {
+		t.Errorf("ClientCAPath = %q, want %q", cfg.ClientCAPath, "/path/to/ca.pem")
+	}
+}
+
+func TestLoad_TransportCLIFlagTakesPrecedenceOverEnvVar(t *testing.T) {
+	vault := t.TempDir()
+	t.Setenv("OBSIDIAN_TRANSPORT", "http")
+	t.Setenv("OBSIDIAN_HTTP_PORT", "9999")
+
+	cfg, err := config.Load([]string{
+		"--vault", vault,
+		"--transport", "stdio",
+		"--http-port", "1234",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Transport != "stdio" {
+		t.Errorf("Transport = %q, want stdio (CLI flag should win over env var 'http')", cfg.Transport)
+	}
+	if cfg.HTTPPort != 1234 {
+		t.Errorf("HTTPPort = %d, want 1234 (CLI flag should win over env var 9999)", cfg.HTTPPort)
+	}
+}
+
 // slicesEqual reports whether two string slices are equal in length and content.
 func slicesEqual(a, b []string) bool {
 	if len(a) != len(b) {

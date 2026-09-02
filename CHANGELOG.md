@@ -7,8 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-02
+
 ### Added
 
+- `delete_note` now moves notes to `.obsidian-mcp/trash/<timestamp>/<path>` by default instead of
+  hard-deleting, preserving vault-relative structure so a delete is recoverable. Pass
+  `permanent: true` to hard-delete as before; `confirm` still guards both paths. Trash is pruned
+  once at server startup via the new `--trash-retention-days` flag (`OBSIDIAN_TRASH_RETENTION_DAYS`,
+  default 30).
+- `--read-only` flag (`OBSIDIAN_READ_ONLY`) disables all mutating tools: they are omitted from
+  `tools/list` entirely, not merely rejected at call time, so a client never sees them as an option.
+- `.obsidian-mcp/` (the server's own state directory) is now unconditionally excluded from path
+  resolution, directory listings, and search/audit walks — independent of `--ignore` — so overriding
+  the ignore list can never resurface trashed notes as live content.
 - `get_note_outline` — returns a note's heading tree (level, text, line number) without its body.
 - `read_note_lines` — reads a bounded range of lines from a note (`startLine` + `lineCount`,
   default 200, capped at 2000), cheaper than `read_note` for a long note when only a section is
@@ -31,21 +43,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   additive and optional everywhere — omitting it writes unconditionally, as before. Two edge cases:
   `if_match` against a note that doesn't exist yet is always a conflict, never an implicit create;
   and `move_note`'s `dryRun: true` preview does not enforce `if_match`.
-
-## [0.2.0] - 2026-09-01
-
-### Added
-
-- `delete_note` now moves notes to `.obsidian-mcp/trash/<timestamp>/<path>` by default instead of
-  hard-deleting, preserving vault-relative structure so a delete is recoverable. Pass
-  `permanent: true` to hard-delete as before; `confirm` still guards both paths. Trash is pruned
-  once at server startup via the new `--trash-retention-days` flag (`OBSIDIAN_TRASH_RETENTION_DAYS`,
-  default 30).
-- `--read-only` flag (`OBSIDIAN_READ_ONLY`) disables all mutating tools: they are omitted from
-  `tools/list` entirely, not merely rejected at call time, so a client never sees them as an option.
-- `.obsidian-mcp/` (the server's own state directory) is now unconditionally excluded from path
-  resolution, directory listings, and search/audit walks — independent of `--ignore` — so overriding
-  the ignore list can never resurface trashed notes as live content.
+- `--transport http` (default remains `stdio`) starts a Streamable HTTP transport secured by
+  default: TLS 1.3 with an auto-generated, locally-persisted self-signed certificate; a
+  `crypto/rand` bearer token (never printed, no `--auth-token <value>` argv form) with
+  `OBSIDIAN_AUTH_TOKEN` as an env-var override; sessions bound to their issuing credential; and
+  an explicit `--allow-non-loopback` + `--allowed-hosts` + `--allowed-origins` gate before binding
+  any non-loopback address. Optional mutual TLS via `--client-ca`. New flags: `--transport`,
+  `--http-bind` (default `127.0.0.1`), `--http-port` (default `8443`), `--allow-non-loopback`,
+  `--allowed-hosts`, `--allowed-origins`, `--client-ca`; matching `OBSIDIAN_*` env vars. See
+  `SECURITY.md` § HTTP transport for the full posture.
 
 ### Changed
 
