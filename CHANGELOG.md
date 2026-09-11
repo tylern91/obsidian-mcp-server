@@ -12,6 +12,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `server.json` was left pointing at the `v0.2.0` `.mcpb` asset with a placeholder
   `fileSha256`, from before the `v0.3.0` release actually built and published that bundle.
   Synced to the real `v0.3.0` asset URL and its published SHA-256.
+- Dependabot's own `minor`/`major` semver labels collided with the release workflow's
+  identically-named bump labels, so merging a dependency PR attempted a release and failed
+  the version gate (`internal/version/version.go says v0.3.0 but label 'minor' ... implies
+  v0.4.0`). Renamed the release bump labels to `release:patch`/`release:minor`/
+  `release:major`, excluded `dependabot[bot]` from the release job by author, and gave
+  Dependabot's own PRs the `skip-release` label. The release job's `if` now also requires
+  one of the `release:*` labels, so an unlabeled merge genuinely produces no release
+  (previously it silently defaulted to `patch` and failed the same gate).
+- `actions/create-github-app-token@v3`'s `app-id` input is deprecated in favor of
+  `client-id`; switched both `release.yml` and `publish-assets.yml` to `client-id` (same
+  `HOMEBREW_APP_ID` secret value — the action treats the two identically).
 
 ## [0.3.0] - 2026-09-02
 

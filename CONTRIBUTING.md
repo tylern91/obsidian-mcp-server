@@ -111,16 +111,24 @@ A PR that should ship in a release **finalizes its own release section** in
 
 ## Semver labels
 
-Apply exactly one on your PR: `patch`, `minor`, `major`, or `skip-release`.
-**A PR with no label produces no release** — the release workflow simply
-doesn't run.
+Apply exactly one on your PR: `release:patch`, `release:minor`, `release:major`,
+or `skip-release`. **A PR with no label produces no release** — the release
+workflow simply doesn't run.
 
-Docs-only changes use `skip-release`, **not** `patch` — `patch` fails the
-changelog gate on a PR that adds no `CHANGELOG.md` entry.
+These are deliberately namespaced away from Dependabot's own `patch`/`minor`/
+`major` semver labels, which it auto-applies to its own PRs — without the
+`release:` prefix, a dependency-bump PR would satisfy the release workflow's
+label check and fail its version gate, since Dependabot never touches
+`internal/version/version.go` or `CHANGELOG.md`. Dependabot PRs are excluded
+from releases twice over: by author (`dependabot[bot]`) and by carrying
+`skip-release` (see `.github/dependabot.yml`).
+
+Docs-only changes use `skip-release`, **not** `release:patch` — `release:patch`
+fails the changelog gate on a PR that adds no `CHANGELOG.md` entry.
 
 ## Breaking changes
 
-Escalate a `minor`/`major` label to a major version bump with any of:
+Escalate a `release:minor`/`release:major` label to a major version bump with any of:
 
 - A PR title matching `^[a-z]+(\([^)]+\))?!:` (e.g. `feat(vault)!: ...`)
 - A `BREAKING CHANGE:` line in the PR body
