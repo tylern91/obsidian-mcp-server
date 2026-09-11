@@ -46,7 +46,14 @@ jobs:
       - name: actionlint
         uses: docker://rhysd/actionlint:1.7.12
         with:
-          args: -color
+          # actionlint 1.7.12's bundled metadata for create-github-app-token@v3 predates
+          # its client-id input (added as the app-id replacement) — false positive, not
+          # a real config error. See action.yml on the v3 tag: client-id and app-id both
+          # exist, client-id undocumented on actionlint's end.
+          args: >-
+            -color
+            -ignore 'missing input "app-id" which is required by action "actions/create-github-app-token@v3"'
+            -ignore 'input "client-id" is not defined in action "actions/create-github-app-token@v3"'
 
   trivy:
     runs-on: ubuntu-latest
