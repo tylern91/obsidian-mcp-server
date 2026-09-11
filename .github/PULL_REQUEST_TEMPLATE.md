@@ -21,10 +21,10 @@ verbatim into the GitHub release notes by scripts/build-release-notes.sh.
 
 ---
 
-**Before merging, apply exactly one label:** `patch`, `minor`, `major`, or
-`skip-release` (docs-only changes use `skip-release`, not `patch` — see
-CONTRIBUTING.md). If this is a breaking change, also add `breaking-change` or
-use a `!` in the PR title (`feat(scope)!: ...`).
+**Before merging, apply exactly one label:** `release:patch`, `release:minor`,
+`release:major`, or `skip-release` (docs-only changes use `skip-release`, not
+`release:patch` — see CONTRIBUTING.md). If this is a breaking change, also add
+`breaking-change` or use a `!` in the PR title (`feat(scope)!: ...`).
 
 **Because merges are squash-only, this PR's title becomes the commit
 message** — title it accordingly.
