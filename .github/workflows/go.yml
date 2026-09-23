@@ -12,6 +12,7 @@ on:
       - "scripts/check-version-sync.sh"
       - ".golangci.yml"
       - ".github/workflows/go.yml"
+      - "tests/acceptance/**"
   pull_request:
     paths:
       - "**.go"
@@ -22,6 +23,7 @@ on:
       - "scripts/check-version-sync.sh"
       - ".golangci.yml"
       - ".github/workflows/go.yml"
+      - "tests/acceptance/**"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -122,3 +124,51 @@ jobs:
           ext=""
           if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
           go build -o "obsidian-mcp${ext}" ./cmd/obsidian-mcp
+
+  revert-evidence:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Enforce revert-evidence for new/changed [AC-N] tests
+        run: |
+          set -euo pipefail
+
+          git fetch origin main --depth=1 -q
+          added_acs="$(git diff --unified=0 "origin/main...HEAD" -- tests/acceptance/*_test.go 2>/dev/null | awk '
+            /^\+\+\+ b\// { file=$0; sub(/^\+\+\+ b\//, "", file); n=split(file, parts, "/"); suite=parts[n]; next }
+            /^\+[[:space:]]*t\.Run\("\[AC-[0-9]+\]/ {
+              line=$0; sub(/^\+[[:space:]]*t\.Run\("/, "", line);
+              match(line, /\[AC-[0-9]+\]/); ac=substr(line, RSTART+1, RLENGTH-2);
+              print suite "::" ac
+            }
+          ' | sort -u)"
+
+          if [ -z "$added_acs" ]; then
+            echo "SKIP:ac-gate:revert-evidence:no-new-or-changed-acs"
+            exit 0
+          fi
+
+          fail=0
+          missing_evidence=""
+          while IFS= read -r key; do
+            [ -z "$key" ] && continue
+            suite="${key%::*}"; ac="${key#*::}"
+            if ! awk -F'\t' -v s="$suite" -v a="$ac" '$1==s && $2==a {found=1} END{exit !found}' tests/acceptance/revert-ledger.tsv; then
+              missing_evidence="${missing_evidence}${key}\n"
+            fi
+          done <<< "$added_acs"
+
+          if [ -n "$missing_evidence" ]; then
+            echo "::error::new/changed [AC-N] test(s) with no tests/acceptance/revert-ledger.tsv entry (must ship with revert evidence):"
+            printf '%b' "$missing_evidence"
+            fail=1
+          else
+            echo "PASS:ac-gate:revert-evidence:$(echo "$added_acs" | wc -l | tr -d ' ')/$(echo "$added_acs" | wc -l | tr -d ' ')"
+          fi
+
+          exit "$fail"

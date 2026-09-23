@@ -1,4 +1,4 @@
-.PHONY: build test vet fmt lint run clean help install-hooks
+.PHONY: build test test-acceptance vet fmt lint run clean help install-hooks
 
 BINARY := obsidian-mcp
 
@@ -9,6 +9,10 @@ build:
 ## test: run all tests with race detector
 test:
 	go test -race ./...
+
+## test-acceptance: run only the [AC-N] acceptance suite
+test-acceptance:
+	go test -race ./tests/acceptance/...
 
 ## vet: run go vet
 vet:
