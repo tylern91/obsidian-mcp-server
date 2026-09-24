@@ -51,7 +51,7 @@ func startClient(t *testing.T, register func(*server.MCPServer)) *client.Client 
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		tr.Close()
+		_ = tr.Close()
 		_ = clientWriter.Close()
 		_ = serverWriter.Close()
 		<-done
