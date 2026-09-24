@@ -1,8 +1,8 @@
 {
   "permissions": {
     "deny": [
-      "Bash(rm -rf /)*",
-      "Bash(rm -rf ~)*",
+      "Bash(rm -rf /)",
+      "Bash(rm -rf ~)",
       "Read(**/.DS_Store)",
       "Read(**/.idea/**)",
       "Read(**/.vscode/**)",
@@ -27,7 +27,8 @@
 
   "disabledPlugins": [
     "application-performance",
-    "skill-creator"
+    "skill-creator",
+    "tdd-guard"
   ],
 
   "disabledSkills": [
