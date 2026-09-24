@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Bumped `github.com/mark3labs/mcp-go` from `v1.0.0` to `v1.1.0`. Notable upstream fixes that
+  reach this server: tool-schema property-order preservation through decode/encode, and
+  cancellation of in-flight task execution on TTL expiration.
+
 ### Fixed
 
 - `server.json` was left pointing at the `v0.2.0` `.mcpb` asset with a placeholder
