@@ -27,7 +27,8 @@
 
   "disabledPlugins": [
     "application-performance",
-    "skill-creator"
+    "skill-creator",
+    "tdd-guard"
   ],
 
   "disabledSkills": [
