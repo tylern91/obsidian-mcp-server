@@ -13,7 +13,8 @@ Go MCP server for Obsidian vaults. Filesystem-based — no Obsidian app dependen
 ```bash
 make build              # ./obsidian-mcp
 make test               # go test -race ./...   (race always on)
-make lint               # vet + gofmt -l check — the only pre-merge gate (no CI)
+make test-acceptance    # go test -race ./tests/acceptance/...  ([AC-N] suite only)
+make lint               # vet + gofmt -l check — reproduces the CI gate locally
 make fmt                # goimports + gofmt
 make run ARGS="--vault /path/to/vault"
 
@@ -42,6 +43,7 @@ go test -race ./internal/vault/ -run TestSanitizePath -v
 - `internal/version/` — single `const Version` (hand-edited per release; not ldflags-injected)
 - `internal/httptransport/` — Streamable HTTP transport: security middleware (Host/Origin allowlist → body cap → auth), TLS cert generation, bearer token generation, custom `SessionIdManager`
 - `testdata/vault/` — fixture vault for tests; **load-bearing**, do not mutate
+- `tests/acceptance/` — `[AC-N]`-named acceptance tests, one per acceptance criterion (see § Critical conventions)
 
 ## Critical conventions
 
@@ -53,11 +55,12 @@ go test -race ./internal/vault/ -run TestSanitizePath -v
 - **Test fixture is load-bearing**: `testdata/vault/` tag counts, link graphs, and `.obsidian/plugins/periodic-notes/data.json` back assertions in search/audit/periodic tests. Use `t.TempDir()` and copy fixtures rather than mutate.
 - **Error sentinel**: `config.ErrVersionRequested` is control flow for `--version`, not a real error — `main.go` checks for it before logging.
 - **Optimistic concurrency (etags)**: `vault.Etag(data []byte) string` (`internal/vault/etag.go`) is the single canonical SHA-256 function — every etag emitted by `read_note`/`read_multiple_notes`/`get_notes_info` and every `if_match` comparison must go through it, never a second hash implementation. Mutating handlers (`write_note`, `patch_note`, `update_frontmatter`, `manage_tags`, `delete_note`, `move_note`) accept an optional `if_match`; a mismatch returns a `REVISION_CONFLICT`-prefixed `mcp.NewToolResultError`, never a raw Go error. The compare (`checkIfMatch`) runs inside `s.mu.Lock()`, immediately after `checkSymlinksForWrite` — a decorator or tools-layer check would race the write it guards, since every vault read path is lock-free. Two documented edge cases: `if_match` against a note that doesn't exist yet is a conflict, not an implicit create; `move_note`'s `dryRun: true` path does not enforce `if_match` (it's a lock-free `os.Stat`-only preview).
+- **ATDD**: acceptance criteria live as `t.Run("[AC-N] ...", ...)` subtests in `tests/acceptance/` (package `acceptance_test`), one per AC, run via `make test-acceptance`. Each AC is revert-verified (mutate the implementation, confirm the subtest FAILs, restore byte-exact, confirm PASS) with the result recorded as a row in `tests/acceptance/revert-ledger.tsv`; `.github/workflows/go.yml`'s `revert-evidence` job enforces this on every PR touching `tests/acceptance/*_test.go`. Below the acceptance tier, write a unit test only where it guards a branch no acceptance test reaches. Fixtures come from `newVaultDeps` (`tests/acceptance/helper_test.go`), which copies `testdata/vault/` into a fresh `t.TempDir()` — never point an acceptance test at `testdata/vault/` directly.
 - **HTTP transport (`internal/httptransport/`)**: never call `mcp-go`'s `StreamableHTTPServer.Start()` — own the `*http.Server` directly. Security middleware order is fixed: Host/Origin allowlist → `http.MaxBytesReader` body cap → bearer/mTLS auth, all evaluated before any handler logic. TLS defaults on, `MinVersion: tls.VersionTLS13`; the self-signed cert, key, and bearer token are generated on first run into the OS user config dir (`os.UserConfigDir()/obsidian-mcp`), never under the vault path. Compare the bearer token by hashing both sides to a fixed width before `subtle.ConstantTimeCompare` — never a raw `==`, which leaks length via early return. The custom `SessionIdManager` binds each session to its issuing credential (`sha256(token)`, or client cert under mTLS) and rejects a session ID presented with a different one. `--allow-non-loopback` requires non-empty `--allowed-hosts` and `--allowed-origins` — never relax this to a single flag. See `SECURITY.md` § HTTP transport for the full posture.
 
 ## Operational notes
 
-- **CI**: `.github/workflows/go.yml` runs `make lint`, `make test`, `make build`, and `govulncheck ./...` on every PR. `.github/workflows/release.yml` handles tag-triggered releases. `make lint` locally reproduces the same gate before pushing.
+- **CI**: `.github/workflows/go.yml` runs `make lint`, `make test`, `make build`, and `govulncheck ./...` on every PR, plus a `revert-evidence` job gating `tests/acceptance/`. `.github/workflows/release.yml` handles tag-triggered releases. `make lint` locally reproduces the same gate before pushing.
 - **Releases**: bump `internal/version/version.go`, tag SemVer (`vX.Y.Z`), update `CHANGELOG.md`. No goreleaser, no Dockerfile.
 - **MCP integration**: `claude mcp add obsidian -s user -e OBSIDIAN_VAULT_PATH=/path/to/vault -- obsidian-mcp` (Claude Code) or `codex mcp add obsidian -s user -e OBSIDIAN_VAULT_PATH=/path/to/vault -- obsidian-mcp` (Codex). See `README.md` § Installation for Claude Desktop and other clients.
 - **`--log-level debug`** (or `OBSIDIAN_LOG_LEVEL=debug`) for verbose JSON logs to stderr. Default is `warn`.
