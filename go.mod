@@ -3,7 +3,7 @@ module github.com/tylern91/obsidian-mcp-server
 go 1.27.0
 
 require (
-	github.com/mark3labs/mcp-go v1.0.0
+	github.com/mark3labs/mcp-go v1.1.0
 	github.com/pkoukk/tiktoken-go v0.1.8
 	github.com/stretchr/testify v1.12.1
 	gopkg.in/yaml.v3 v3.0.1
