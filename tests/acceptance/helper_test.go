@@ -100,7 +100,7 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
@@ -109,8 +109,18 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }()
 
 	_, err = io.Copy(out, in)
 	return err
+}
+
+// TestNewVaultDepsScaffold exercises newVaultDeps (and, transitively, copyDir
+// and copyFile) so these shared fixture helpers stay linked into the package
+// even on a commit where no other acceptance test yet calls them directly.
+func TestNewVaultDepsScaffold(t *testing.T) {
+	deps := newVaultDeps(t)
+	if deps.Vault == nil {
+		t.Fatal("newVaultDeps returned a nil Vault")
+	}
 }
