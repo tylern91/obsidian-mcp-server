@@ -11,7 +11,7 @@ import (
 
 func registerNoteResource(s *server.MCPServer, deps Deps) {
 	tmpl := mcp.NewResourceTemplate(
-		"obsidian://note/{path}",
+		"obsidian://note/{+path}",
 		"Note content",
 		mcp.WithTemplateDescription("Read any note in the vault by its vault-relative path. Returns the raw markdown including frontmatter."),
 		mcp.WithTemplateMIMEType("text/markdown"),

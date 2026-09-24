@@ -6,11 +6,59 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/mark3labs/mcp-go/client"
+	"github.com/mark3labs/mcp-go/client/transport"
+	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
+	"github.com/stretchr/testify/require"
 
 	"github.com/tylern91/obsidian-mcp-server/internal/tools"
 	"github.com/tylern91/obsidian-mcp-server/internal/vault"
 )
+
+// startClient wires register's registrations (e.g. prompts.RegisterAll,
+// resources.RegisterAll) onto a real *server.MCPServer, serves it over an
+// in-process stdio pipe, and returns an initialized client connected to it.
+// This exercises the real MCP dispatch path (URI template matching, argument
+// parsing) rather than calling unexported handler funcs directly.
+func startClient(t *testing.T, register func(*server.MCPServer)) *client.Client {
+	t.Helper()
+	ctx := t.Context()
+
+	mcpServer := server.NewMCPServer(t.Name(), "0.0.0-test")
+	register(mcpServer)
+
+	serverReader, clientWriter := io.Pipe()
+	clientReader, serverWriter := io.Pipe()
+
+	stdioServer := server.NewStdioServer(mcpServer)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = stdioServer.Listen(ctx, serverReader, serverWriter)
+	}()
+
+	tr := transport.NewIO(clientReader, clientWriter, io.NopCloser(strings.NewReader("")))
+	c := client.NewClient(tr)
+	require.NoError(t, c.Start(ctx))
+
+	var initReq mcp.InitializeRequest
+	initReq.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
+	_, err := c.Initialize(ctx, initReq)
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		_ = tr.Close()
+		_ = clientWriter.Close()
+		_ = serverWriter.Close()
+		<-done
+	})
+
+	return c
+}
 
 // newVaultDeps copies the committed testdata/vault fixture into a fresh t.TempDir()
 // and returns a tools.Deps wired to it. Never mutate testdata/vault directly.

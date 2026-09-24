@@ -11,7 +11,7 @@ import (
 
 func registerBacklinksResource(s *server.MCPServer, deps Deps) {
 	tmpl := mcp.NewResourceTemplate(
-		"obsidian://backlinks/{path}",
+		"obsidian://backlinks/{+path}",
 		"Note backlinks",
 		mcp.WithTemplateDescription("All notes that link to the specified note, with line numbers and snippets."),
 		mcp.WithTemplateMIMEType("application/json"),
