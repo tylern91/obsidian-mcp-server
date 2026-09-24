@@ -145,7 +145,7 @@ func TestHTTPTransport_Acceptance(t *testing.T) {
 		addr, hc := startHTTPTransport(t, &config.Config{})
 		resp, err := hc.Get("https://" + addr + "/mcp")
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 		require.NotEmpty(t, resp.Header.Get("WWW-Authenticate"))
 	})
@@ -159,7 +159,7 @@ func TestHTTPTransport_Acceptance(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer "+token)
 		resp, err := hc.Do(req)
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		require.NotEqual(t, http.StatusUnauthorized, resp.StatusCode)
 		require.NotEqual(t, http.StatusForbidden, resp.StatusCode)
 	})
@@ -183,7 +183,7 @@ func TestHTTPTransport_Acceptance(t *testing.T) {
 		req.Host = "localhost"
 		resp, err := hc.Do(req)
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		require.Equal(t, http.StatusForbidden, resp.StatusCode)
 	})
 
@@ -197,7 +197,7 @@ func TestHTTPTransport_Acceptance(t *testing.T) {
 		req.Header.Set("Origin", "https://not-allowed.example.com")
 		resp, err := hc.Do(req)
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		require.Equal(t, http.StatusForbidden, resp.StatusCode)
 	})
 
@@ -221,7 +221,7 @@ func TestHTTPTransport_Acceptance(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := hc.Do(req)
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	})
 
@@ -234,7 +234,7 @@ func TestHTTPTransport_Acceptance(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer "+token1)
 		resp, err := hc.Do(req)
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		require.NotNil(t, resp.TLS)
 		require.Equal(t, uint16(tls.VersionTLS13), resp.TLS.Version)
 
