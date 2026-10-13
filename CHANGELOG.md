@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-13
+
 ### Changed
 
 - Bumped `github.com/mark3labs/mcp-go` from `v1.0.0` to `v1.1.0`. Notable upstream fixes that
@@ -15,6 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- CI and release builds now use Go `1.27.2` (was `1.27.0`). Go 1.27.0's standard library
+  carries nine advisories (GO-2026-6603, -6605, -6607, -6608, -6610, -6611, -6612, -6613,
+  -6617) in `crypto/tls`, `net/http`, `net/http/internal/http2` and `net/textproto`, all
+  reachable through the HTTP transport and the tiktoken encoding loader, and all fixed in
+  1.27.2. This turned the scheduled `govulncheck` job red and meant the `v0.3.0` binaries
+  shipped the vulnerable standard library. `golangci-lint` moved `v2.13.1` → `v2.14.0` in the
+  same change, because `v2.13.1` cannot read Go 1.27.2's compiler export data and failed the
+  lint job with `typecheck` errors. The `go.mod` floor stays at `go 1.27.0`.
 - `server.json` was left pointing at the `v0.2.0` `.mcpb` asset with a placeholder
   `fileSha256`, from before the `v0.3.0` release actually built and published that bundle.
   Synced to the real `v0.3.0` asset URL and its published SHA-256.
