@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-10-27
+
+### Fixed
+
+- CI and release builds now use Go `1.27.3` (was `1.27.2`). Go 1.27.2's `crypto/x509` carries
+  GO-2026-6809 (compromised intermediate certificates are no longer distrusted), reachable
+  from the server binary and fixed in 1.27.3. This turned the scheduled `govulncheck` job red,
+  which in turn made the Trivy code-scanning configuration report "Workflow runs failing", and
+  meant the `v0.3.1` binaries shipped the vulnerable standard library. The `go.mod` floor stays
+  at `go 1.27.0`.
+
 ## [0.3.1] - 2026-10-13
 
 ### Changed
