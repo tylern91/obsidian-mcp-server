@@ -108,6 +108,9 @@ func (m *boundSessionIdManager) Validate(sessionID string) (isTerminated bool, e
 		delete(m.store.sessions, sessionID)
 		return true, nil
 	}
+	// Sliding expiry: activity keeps the session alive.
+	rec.expiresAt = time.Now().Add(m.store.ttl)
+	m.store.sessions[sessionID] = rec
 	return false, nil
 }
 

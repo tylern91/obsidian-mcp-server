@@ -75,8 +75,8 @@ func TestStripPort(t *testing.T) {
 		{"localhost:8443", "localhost"},
 		{"127.0.0.1:8443", "127.0.0.1"},
 		{"127.0.0.1", "127.0.0.1"},
-		{"[::1]:8443", "[::1]"},
-		{"[::1]", "[::1]"},
+		{"[::1]:8443", "::1"},
+		{"[::1]", "::1"},
 	}
 	for _, tt := range tests {
 		if got := stripPort(tt.host); got != tt.want {
@@ -101,6 +101,41 @@ func TestBearerToken(t *testing.T) {
 		token, ok := bearerToken(tt.header)
 		if ok != tt.wantOK || token != tt.wantToken {
 			t.Errorf("bearerToken(%q) = (%q, %v), want (%q, %v)", tt.header, token, ok, tt.wantToken, tt.wantOK)
+		}
+	}
+}
+
+func TestHostOriginMiddleware_AcceptsIPv6LoopbackHost(t *testing.T) {
+	for _, host := range []string{"[::1]:8443", "[::1]"} {
+		t.Run(host, func(t *testing.T) {
+			cfg := &chainConfig{logger: testLogger()}
+			h := cfg.hostOriginMiddleware(okHandler())
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req.Host = host
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Errorf("Host %q: status = %d, want %d", host, rec.Code, http.StatusOK)
+			}
+		})
+	}
+}
+
+func TestToHostSet_StripsIPv6Brackets(t *testing.T) {
+	set := toHostSet([]string{"[::1]", "example.com"})
+	if _, ok := set["::1"]; !ok {
+		t.Errorf("toHostSet did not strip brackets from [::1]: %v", set)
+	}
+	if _, ok := set["example.com"]; !ok {
+		t.Errorf("toHostSet lost example.com: %v", set)
+	}
+}
+
+func TestToSet_KeepsBracketedOriginsVerbatim(t *testing.T) {
+	set := toSet([]string{"https://[::1]", "https://example.com"})
+	for _, want := range []string{"https://[::1]", "https://example.com"} {
+		if _, ok := set[want]; !ok {
+			t.Errorf("toSet altered origin entry %q: %v", want, set)
 		}
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -78,7 +79,7 @@ func Run(ctx context.Context, mcpServer *mcpserver.MCPServer, cfg *config.Config
 	go runSessionSweep(sweepCtx, store)
 
 	chain := &chainConfig{
-		allowedHosts:   toSet(cfg.AllowedHosts),
+		allowedHosts:   toHostSet(cfg.AllowedHosts),
 		allowedOrigins: toSet(cfg.AllowedOrigins),
 		token:          token,
 		logger:         logger,
@@ -143,6 +144,16 @@ func toSet(values []string) map[string]struct{} {
 	set := make(map[string]struct{}, len(values))
 	for _, v := range values {
 		set[v] = struct{}{}
+	}
+	return set
+}
+
+// toHostSet is toSet for Host allowlist entries: bracketed IPv6 entries
+// ("[::1]") are stored bare because Host matching uses the unbracketed form.
+func toHostSet(values []string) map[string]struct{} {
+	set := make(map[string]struct{}, len(values))
+	for _, v := range values {
+		set[strings.TrimSuffix(strings.TrimPrefix(v, "["), "]")] = struct{}{}
 	}
 	return set
 }

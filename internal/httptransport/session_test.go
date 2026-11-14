@@ -110,6 +110,27 @@ func TestSessionStore_ValidateReportsTerminatedOnExpiry(t *testing.T) {
 	}
 }
 
+func TestSessionStore_ValidateSlidesExpiryWhileActive(t *testing.T) {
+	const ttl = 500 * time.Millisecond
+	store := newSessionStore(ttl)
+	mgr := &boundSessionIdManager{store: store, credentialHash: "cred-a"}
+
+	id := mgr.Generate()
+	for i := 0; i < 15; i++ {
+		time.Sleep(50 * time.Millisecond)
+		isTerminated, err := mgr.Validate(id)
+		if err != nil || isTerminated {
+			t.Fatalf("Validate at %dms = (%v, %v), want (false, nil): active session must not expire", (i+1)*50, isTerminated, err)
+		}
+	}
+
+	time.Sleep(ttl + 100*time.Millisecond)
+	isTerminated, err := mgr.Validate(id)
+	if err != nil || !isTerminated {
+		t.Errorf("Validate after idling = (%v, %v), want (true, nil)", isTerminated, err)
+	}
+}
+
 func TestSessionResolver_BindsToContextCredentialHash(t *testing.T) {
 	store := newSessionStore(time.Minute)
 	resolver := &sessionResolver{store: store}
