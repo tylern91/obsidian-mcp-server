@@ -52,6 +52,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The HTTP transport accepts bracketed IPv6 `Host` headers such as `[::1]:8080`.
 - Resource reads no longer cache error results for the TTL window.
 - `install.sh` falls back to `sha256sum` when `shasum` is not installed.
+- CI and release builds now use Go `1.27.4` (was `1.27.3`). Go 1.27.3's `net/http` carries
+  GO-2026-6859, reachable from the server binary and fixed in 1.27.4. This turned the
+  `govulncheck` job red. The `go.mod` floor stays at `go 1.27.0`.
 
 ### Changed
 
