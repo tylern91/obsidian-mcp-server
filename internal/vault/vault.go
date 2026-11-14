@@ -157,7 +157,8 @@ func isASCIILetter(b byte) bool {
 	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
 }
 
-// resolveSymlink calls EvalSymlinks and verifies the target is under the vault root.
+// resolveSymlink calls EvalSymlinks and verifies the target is under the vault
+// root and is not an internal-state or ignored path.
 func (s *Service) resolveSymlink(op, relativePath, absPath string) (string, error) {
 	resolved, err := filepath.EvalSymlinks(absPath)
 	if err != nil {
@@ -166,7 +167,41 @@ func (s *Service) resolveSymlink(op, relativePath, absPath string) (string, erro
 	if !s.isUnderRoot(resolved) {
 		return "", &PathError{Op: op, Path: relativePath, Err: ErrSymlinkEscape}
 	}
+	if rel, relErr := filepath.Rel(s.root, resolved); relErr == nil && s.restrictedRel(rel) {
+		return "", &PathError{Op: op, Path: relativePath, Err: ErrPathRestricted}
+	}
 	return resolved, nil
+}
+
+// restrictedRel reports whether a root-relative path is internal state or
+// matches the ignore list.
+func (s *Service) restrictedRel(rel string) bool {
+	if rel == "." {
+		return false
+	}
+	return IsInternalState(rel) || (s.filter != nil && s.filter.IsIgnored(rel))
+}
+
+// checkContained verifies that the nearest existing ancestor of absPath
+// resolves inside the vault root. Unlike resolveSymlink it applies no
+// internal-state or ignore filter, for paths the service owns (the trash tree).
+func (s *Service) checkContained(op, path, absPath string) error {
+	ancestor := absPath
+	for {
+		if _, err := os.Lstat(ancestor); err == nil {
+			break
+		}
+		next := filepath.Dir(ancestor)
+		if next == ancestor {
+			return nil
+		}
+		ancestor = next
+	}
+	resolved, err := filepath.EvalSymlinks(ancestor)
+	if err != nil || !s.isUnderRoot(resolved) {
+		return &PathError{Op: op, Path: path, Err: ErrSymlinkEscape}
+	}
+	return nil
 }
 
 // checkSymlinksForWrite verifies that neither the parent directory nor the file
@@ -180,10 +215,30 @@ func (s *Service) resolveSymlink(op, relativePath, absPath string) (string, erro
 // accepted as low-severity — the attacker already needs vault write access —
 // and is documented as a known boundary in SECURITY.md.
 func (s *Service) checkSymlinksForWrite(op, path, absPath string) error {
-	parentDir := filepath.Dir(absPath)
-	if _, statErr := os.Stat(parentDir); statErr == nil {
-		if _, err := s.resolveSymlink(op, path, parentDir); err != nil {
+	// Walk up to the nearest existing ancestor: MkdirAll and Rename follow
+	// symlinks in it even when the immediate parent does not exist yet.
+	ancestor := filepath.Dir(absPath)
+	for ancestor != s.root && s.isUnderRoot(ancestor) {
+		if _, statErr := os.Lstat(ancestor); statErr == nil {
+			break
+		}
+		next := filepath.Dir(ancestor)
+		if next == ancestor {
+			break
+		}
+		ancestor = next
+	}
+	if _, statErr := os.Lstat(ancestor); statErr == nil {
+		resolved, err := s.resolveSymlink(op, path, ancestor)
+		if err != nil {
 			return err
+		}
+		// The part of the path below the ancestor does not exist yet, so only
+		// its lexical join with the resolved ancestor can be checked.
+		if suffix, relErr := filepath.Rel(ancestor, absPath); relErr == nil {
+			if rel, relErr := filepath.Rel(s.root, filepath.Join(resolved, suffix)); relErr == nil && s.restrictedRel(rel) {
+				return &PathError{Op: op, Path: path, Err: ErrPathRestricted}
+			}
 		}
 	}
 	if info, statErr := os.Lstat(absPath); statErr == nil && info.Mode()&os.ModeSymlink != 0 {
@@ -215,8 +270,15 @@ func (s *Service) ResolvePath(relativePath string) (string, error) {
 		return "", err
 	}
 
-	// Symlink check.
-	return s.resolveSymlink("resolve", relativePath, finalAbs)
+	// Symlink check, then the extension allowlist again on the real target.
+	resolved, err := s.resolveSymlink("resolve", relativePath, finalAbs)
+	if err != nil {
+		return "", err
+	}
+	if s.filter != nil && filepath.Ext(resolved) != "" && !s.filter.IsAllowedExtension(resolved) {
+		return "", &PathError{Op: "resolve", Path: relativePath, Err: ErrPathRestricted}
+	}
+	return resolved, nil
 }
 
 // existenceCheck tries os.Stat and falls back to case-insensitive matching.
@@ -395,7 +457,11 @@ func (s *Service) WriteNote(ctx context.Context, path, content string, mode Writ
 
 	case WriteModeAppend, WriteModePrepend:
 		if o.ifMatch == "" {
-			existing = readExistingOrEmpty(absPath)
+			data, _, readErr := readNoteBytes(absPath)
+			if readErr != nil && !os.IsNotExist(readErr) {
+				return &PathError{Op: "write", Path: path, Err: readErr}
+			}
+			existing = string(data)
 		}
 		if err := os.MkdirAll(parentDir, 0755); err != nil {
 			return &PathError{Op: "write", Path: path, Err: err}
@@ -423,13 +489,29 @@ func (s *Service) WriteNote(ctx context.Context, path, content string, mode Writ
 	return nil
 }
 
-// readExistingOrEmpty reads file content, returning empty string if file doesn't exist.
-func readExistingOrEmpty(absPath string) string {
-	data, err := os.ReadFile(absPath)
+// checkRegularFile rejects directories and other non-regular files so that
+// delete and move only ever act on a single note. A missing path passes: the
+// caller's own not-found handling reports it. Must be called while holding s.mu
+// (the dry-run move preview calls it lock-free, like its other stats).
+func checkRegularFile(op, path, absPath string) error {
+	info, err := os.Lstat(absPath)
 	if err != nil {
-		return ""
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return &PathError{Op: op, Path: path, Err: err}
 	}
-	return string(data)
+	if info.Mode()&os.ModeSymlink != 0 {
+		target, statErr := os.Stat(absPath)
+		if statErr != nil {
+			return nil // dangling link: the link itself is the note
+		}
+		info = target
+	}
+	if !info.Mode().IsRegular() {
+		return &PathError{Op: op, Path: path, Err: ErrNotANote}
+	}
+	return nil
 }
 
 // ListDirectory lists the entries in a vault directory.

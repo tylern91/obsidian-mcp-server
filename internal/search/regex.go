@@ -3,6 +3,7 @@ package search
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 const (
 	defaultRegexLimit        = 20
 	defaultMaxMatchesPerFile = 5
+	maxScanLineBytes         = 16 * 1024 * 1024 // matches vault.maxFileSizeBytes
 )
 
 // RegexOptions controls behaviour of SearchRegex.
@@ -190,6 +192,7 @@ func scanFileMatches(ctx context.Context, abs string, re *regexp.Regexp, maxMatc
 	var matches []RegexMatch
 	lineNum := 0
 	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxScanLineBytes)
 
 	for scanner.Scan() {
 		if ctx.Err() != nil {
@@ -210,6 +213,10 @@ func scanFileMatches(ctx context.Context, abs string, re *regexp.Regexp, maxMatc
 	}
 
 	if err := scanner.Err(); err != nil {
+		if errors.Is(err, bufio.ErrTooLong) {
+			// Like an unreadable file: keep what matched before the line.
+			return matches, nil
+		}
 		return nil, fmt.Errorf("scanFileMatches %q: %w", abs, err)
 	}
 

@@ -79,3 +79,28 @@ func indexOf(s, substr string) int {
 	}
 	return -1
 }
+
+func TestService_RenameTag_LostUpdate(t *testing.T) {
+	ctx := context.Background()
+	svc := newLinkTestVault(t)
+	require.NoError(t, svc.WriteNote(ctx, "B.md", "Body #old\n", vault.WriteModeOverwrite))
+
+	fired := false
+	restore := vault.SetAfterUnlockedReadHook(func(rel string) {
+		if rel != "B.md" || fired {
+			return
+		}
+		fired = true
+		require.NoError(t, svc.WriteNote(ctx, "B.md", "Body #old\nNEW LINE\n", vault.WriteModeOverwrite))
+	})
+	t.Cleanup(restore)
+
+	_, err := svc.RenameTag(ctx, "old", "new")
+	require.NoError(t, err)
+	require.True(t, fired)
+
+	note, err := svc.ReadNote(ctx, "B.md")
+	require.NoError(t, err)
+	assert.Contains(t, note.Content, "#new")
+	assert.Contains(t, note.Content, "NEW LINE", "a concurrent write must not be lost")
+}

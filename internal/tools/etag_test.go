@@ -152,3 +152,26 @@ func TestReadMultipleNotesHandler_EmitsEtag(t *testing.T) {
 	require.False(t, result.IsError)
 	assert.Contains(t, extractText(t, result), `"etag"`)
 }
+
+func TestDeleteNoteHandler_DirectoryReportsNotANote(t *testing.T) {
+	deps := mutableDeps(t)
+	handler := tools.DeleteNoteHandler(deps)
+	result, err := handler(context.Background(), makeRequest("path", "Notes", "confirm", "Notes"))
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	assert.Contains(t, extractText(t, result), "NOT_A_NOTE")
+}
+
+func TestReplaceInNoteHandler_IfMatchConflict(t *testing.T) {
+	deps := mutableDeps(t)
+	handler := tools.ReplaceInNoteHandler(deps)
+	result, err := handler(context.Background(), makeRequest(
+		"path", "Notes/simple.md",
+		"pattern", "paragraph",
+		"replacement", "section",
+		"if_match", "stale-etag",
+	))
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	assert.Contains(t, extractText(t, result), "REVISION_CONFLICT")
+}

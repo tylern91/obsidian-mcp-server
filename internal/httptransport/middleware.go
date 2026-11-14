@@ -4,7 +4,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"log/slog"
+	"net"
 	"net/http"
+	"strings"
 )
 
 // maxRequestBodyBytes bounds every request body read by the streamable HTTP
@@ -111,17 +113,13 @@ func bearerToken(header string) (token string, ok bool) {
 	return header[len(prefix):], true
 }
 
-// stripPort removes a trailing ":<port>" from a Host header value, if present.
+// stripPort removes a trailing ":<port>" from a Host header value, if present,
+// and the brackets around an IPv6 literal ("[::1]:8443" -> "::1").
 func stripPort(host string) string {
-	for i := len(host) - 1; i >= 0; i-- {
-		if host[i] == ']' { // IPv6 literal with no port, e.g. "[::1]"
-			return host
-		}
-		if host[i] == ':' {
-			return host[:i]
-		}
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		return h
 	}
-	return host
+	return strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
 }
 
 // hostAllowed reports whether host is permitted. An empty allowlist applies

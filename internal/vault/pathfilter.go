@@ -26,7 +26,7 @@ const internalStateDir = ".obsidian-mcp"
 func IsInternalState(path string) bool {
 	normalized := filepath.ToSlash(path)
 	first, _, _ := strings.Cut(normalized, "/")
-	return first == internalStateDir
+	return strings.EqualFold(first, internalStateDir)
 }
 
 // NewPathFilter creates a PathFilter with the given ignore patterns and
@@ -39,8 +39,9 @@ func NewPathFilter(ignorePatterns, allowedExts []string) *PathFilter {
 }
 
 // IsIgnored reports whether any path component (directory or file name)
-// exactly matches one of the configured ignore patterns.
-// Matching is case-sensitive and requires an exact component match —
+// matches one of the configured ignore patterns.
+// Matching is case-insensitive (the vault may live on a case-insensitive
+// filesystem) and requires a whole-component match —
 // a partial prefix like ".git-backup" does not match the pattern ".git".
 func (f *PathFilter) IsIgnored(path string) bool {
 	if len(f.ignorePatterns) == 0 {
@@ -56,7 +57,7 @@ func (f *PathFilter) IsIgnored(path string) bool {
 			continue
 		}
 		for _, pattern := range f.ignorePatterns {
-			if component == pattern {
+			if strings.EqualFold(component, pattern) {
 				return true
 			}
 		}

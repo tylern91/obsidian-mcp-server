@@ -7,6 +7,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-11-14
+
+### Security
+
+- The `--ignore` list and the internal `.obsidian-mcp/` state directory are now matched
+  case-insensitively. On case-insensitive filesystems (macOS APFS, Windows NTFS) a path such as
+  `.GIT/config` previously passed the guard and reached the real `.git` directory. The match is
+  case-insensitive on every platform, so on a case-sensitive filesystem `--ignore archive` now
+  also hides a sibling `Archive/`.
+- Symlinks are re-checked against the ignore list and internal state after resolution, so a note
+  that links to an ignored or internal path can no longer be read or written through the link.
+  Writes through a symlinked directory into a not-yet-existing subdirectory get the same check,
+  including the internal-state directory, and a read through a symlink re-checks the allowed
+  extension of the target.
+- `delete_note` and trash pruning refuse to run when `.obsidian-mcp` is a symlink that leaves the
+  vault, instead of moving or deleting notes outside it.
+- `WalkNotes` (search, audit, backlinks and the other vault walks) skips symlinked files whose
+  target is outside the vault, ignored, internal, or not a regular file.
+- `delete_note` and `move_note` reject directory paths (new `NOT_A_NOTE` error) instead of
+  trashing or moving a whole folder in one call.
+
+### Fixed
+
+- `rename_tag` and link rewriting on `move_note` re-read each note under the vault write lock, so
+  a concurrent edit is no longer overwritten with stale content.
+- `move_note` reports success with `linksComplete: false` and `linkRewriteError` when the file was
+  moved but a later link rewrite failed, instead of reporting a failure for a completed move.
+- `move_note` no longer treats a dot in a note name as a file extension (moving `Release 1.md` no
+  longer corrupts `[[Release 1.2]]`), and no longer rewrites a bare link to a basename that
+  another note now shares; it writes the path form instead. Dry-run and real runs agree.
+- `write_note` in `append` and `prepend` mode only treats a missing file as empty; any other read
+  error is returned instead of overwriting the note.
+- `update_frontmatter`, `rename_tag` and `manage_tags` handle CRLF notes instead of adding a
+  second frontmatter block or mixing line endings. Frontmatter and tags in CRLF notes are now
+  also recognised by the read paths (`get_frontmatter`, tag counts, search).
+- `replace_in_note` rejects an empty pattern, accepts an optional `if_match` etag like the other
+  single-note mutators, and no longer miscounts or fails context checks when re-running a regex.
+- Tool arguments sent as native JSON arrays or objects (not JSON-encoded strings) are accepted for
+  array and object parameters; a wrong type is now a tool error instead of being dropped silently.
+- `search_regex` and `get_backlinks` no longer fail or silently drop results when a note has a
+  line longer than 64 KiB.
+- HTTP sessions now expire 30 minutes after last use, not 30 minutes after creation.
+- The HTTP transport accepts bracketed IPv6 `Host` headers such as `[::1]:8080`.
+- Resource reads no longer cache error results for the TTL window.
+- `install.sh` falls back to `sha256sum` when `shasum` is not installed.
+- CI and release builds now use Go `1.27.4` (was `1.27.3`). Go 1.27.3's `net/http` carries
+  GO-2026-6859, reachable from the server binary and fixed in 1.27.4. This turned the
+  `govulncheck` job red. The `go.mod` floor stays at `go 1.27.0`.
+
+### Changed
+
+- BM25 search builds snippets and token counts only for the notes it returns, not for every
+  scored note.
+- CI runs `shellcheck` over `install.sh` and the scripts.
+
 ## [0.3.2] - 2026-10-27
 
 ### Fixed

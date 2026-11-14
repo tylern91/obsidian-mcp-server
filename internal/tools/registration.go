@@ -31,7 +31,7 @@ type VaultService interface {
 	DeleteNote(ctx context.Context, path, confirm string, permanent bool, opts ...vault.WriteOpt) error
 	MoveNote(ctx context.Context, src, dst, confirm string, updateLinks, dryRun bool, opts ...vault.WriteOpt) (*vault.MoveResult, error)
 	RenameTag(ctx context.Context, oldTag, newTag string) ([]vault.TagRename, error)
-	ReplaceInNote(ctx context.Context, path, pattern, replacement string, isRegex bool, maxOccurrences int) (*vault.ReplaceResult, error)
+	ReplaceInNote(ctx context.Context, path, pattern, replacement string, isRegex bool, maxOccurrences int, opts ...vault.WriteOpt) (*vault.ReplaceResult, error)
 
 	StatNote(ctx context.Context, path string) (*vault.NoteInfo, error)
 

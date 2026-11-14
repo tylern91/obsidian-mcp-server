@@ -3,6 +3,7 @@ package vault
 import (
 	"bufio"
 	"context"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -109,6 +110,7 @@ func (s *Service) GetBacklinks(ctx context.Context, targetPath string) ([]Backli
 		defer func() { _ = f.Close() }()
 
 		scanner := bufio.NewScanner(f)
+		scanner.Buffer(make([]byte, 0, 64*1024), int(maxFileSizeBytes))
 		lineNum := 0
 		for scanner.Scan() {
 			lineNum++
@@ -130,6 +132,9 @@ func (s *Service) GetBacklinks(ctx context.Context, targetPath string) ([]Backli
 					break
 				}
 			}
+		}
+		if scanErr := scanner.Err(); scanErr != nil {
+			slog.Warn("get_backlinks: scan aborted", "path", rel, "err", scanErr)
 		}
 
 		return nil

@@ -44,15 +44,36 @@ func buildMatchTargets(relPath string) map[string]bool {
 	return map[string]bool{baseNoExt: true, base: true, relNoExt: true, relSlash: true}
 }
 
+// trimExt strips ext (case-insensitive) from the end of a link target. Only
+// the moved note's real extension counts: a dot elsewhere in a name
+// ("Release 1.2") is part of the name, not an extension.
+func trimExt(target, ext string) string {
+	if ext != "" && len(target) >= len(ext) && strings.EqualFold(target[len(target)-len(ext):], ext) {
+		return target[:len(target)-len(ext)]
+	}
+	return target
+}
+
+// moveCtx bundles what rewriteLine needs to know about the move.
+type moveCtx struct {
+	targets         map[string]bool
+	index           map[string][]string
+	newPath         string
+	oldExt          string // extension of the moved note, e.g. ".md"
+	newStemCollides bool   // another note already uses the new basename
+}
+
 // rewriteTarget computes the new link target string for oldTarget (as
 // captured from the source markup) once the note it points to has moved to
 // newPath, preserving oldTarget's style: a bare-basename target rewrites to
 // the new basename; a path-style target (contains "/") rewrites to the new
 // vault-relative path. Extension presence in the original is preserved.
-func rewriteTarget(oldTarget, newPath string) string {
+// forcePath makes a bare-basename target use the path style, for when the
+// new basename is shared with another note.
+func rewriteTarget(oldTarget, newPath, oldExt string, forcePath bool) string {
 	newSlash := filepath.ToSlash(newPath)
-	hadExt := strings.HasSuffix(oldTarget, filepath.Ext(oldTarget)) && filepath.Ext(oldTarget) != ""
-	pathStyle := strings.Contains(oldTarget, "/")
+	hadExt := oldExt != "" && strings.HasSuffix(strings.ToLower(oldTarget), strings.ToLower(oldExt))
+	pathStyle := forcePath || strings.Contains(oldTarget, "/")
 
 	switch {
 	case pathStyle && hadExt:
@@ -106,6 +127,11 @@ func (s *Service) basenameIndex(ctx context.Context) (map[string][]string, error
 	return index, nil
 }
 
+// afterUnlockedReadHook, when non-nil, runs after a note's unlocked scan read
+// and before the locked read-modify-write. Tests use it to interleave a
+// concurrent write.
+var afterUnlockedReadHook func(rel string)
+
 // RewriteLinksOnMove finds every note in the vault linking to oldPath and
 // rewrites those links to point at newPath instead. A link whose bare
 // target string also matches some other note in the vault is ambiguous —
@@ -128,11 +154,19 @@ func (s *Service) RewriteLinksOnMove(ctx context.Context, oldPath, newPath strin
 	if err != nil {
 		return nil, err
 	}
+	newSlash := filepath.ToSlash(newPath)
+	oldSlash := filepath.ToSlash(oldPath)
+	mv := &moveCtx{targets: targets, index: index, newPath: newPath, oldExt: filepath.Ext(oldSlash)}
+	for _, p := range index[Stem(newSlash)] {
+		if p != newSlash && p != oldSlash {
+			mv.newStemCollides = true
+		}
+	}
 
 	var rewrites []LinkRewrite
 
 	walkErr := s.WalkNotes(ctx, func(rel, abs string) error {
-		if rel == filepath.ToSlash(newPath) {
+		if rel == newSlash {
 			return nil // the moved note itself was already renamed on disk
 		}
 
@@ -141,57 +175,82 @@ func (s *Service) RewriteLinksOnMove(ctx context.Context, oldPath, newPath strin
 			return nil // unreadable file: skip, don't fail the whole rewrite
 		}
 
-		lines := strings.Split(string(data), "\n")
-		changed := false
-
-		for i, line := range lines {
-			newLine, lineRewrites := rewriteLine(line, targets, index, newPath)
-			if len(lineRewrites) == 0 {
-				continue
-			}
-			for _, r := range lineRewrites {
-				r.Path = rel
-				r.Line = i + 1
-				rewrites = append(rewrites, r)
-			}
-			if newLine != line {
-				lines[i] = newLine
-				changed = true
-			}
+		_, found, changed := rewriteContent(string(data), rel, mv)
+		if len(found) == 0 {
+			return nil
+		}
+		if !changed || dryRun {
+			rewrites = append(rewrites, found...)
+			return nil
 		}
 
-		if changed && !dryRun {
-			if writeErr := s.writeRewrittenNote(rel, abs, strings.Join(lines, "\n")); writeErr != nil {
-				return writeErr
-			}
+		if afterUnlockedReadHook != nil {
+			afterUnlockedReadHook(rel)
 		}
+		locked, writeErr := s.rewriteNoteLocked(rel, abs, mv)
+		if writeErr != nil {
+			return writeErr
+		}
+		rewrites = append(rewrites, locked...)
 		return nil
 	})
 	if walkErr != nil {
-		return nil, walkErr
+		return rewrites, walkErr // rewrites already applied to disk stay visible
 	}
 
 	return rewrites, nil
 }
 
-// writeRewrittenNote writes newContent to a single note already known (from
-// the WalkNotes callback) to exist at abs, following this package's standard
-// write ordering: checkSymlinksForWrite and the write syscall both inside
-// s.mu.Lock().
-func (s *Service) writeRewrittenNote(rel, abs, newContent string) error {
+// rewriteContent applies the link rewrite to one note's content, returning
+// the new content, one LinkRewrite per link found (Path and Line filled in),
+// and whether the content changed.
+func rewriteContent(content, rel string, mv *moveCtx) (string, []LinkRewrite, bool) {
+	lines := strings.Split(content, "\n")
+	var found []LinkRewrite
+	changed := false
+
+	for i, line := range lines {
+		newLine, lineRewrites := rewriteLine(line, mv)
+		for _, r := range lineRewrites {
+			r.Path = rel
+			r.Line = i + 1
+			found = append(found, r)
+		}
+		if newLine != line {
+			lines[i] = newLine
+			changed = true
+		}
+	}
+	return strings.Join(lines, "\n"), found, changed
+}
+
+// rewriteNoteLocked re-reads the note under s.mu, applies the rewrite to
+// those fresh bytes and writes the result, so a write that landed after the
+// caller's scan read is never overwritten with stale content. Follows the
+// standard sanitizePath -> lock -> checkSymlinksForWrite ordering, one file
+// per lock hold.
+func (s *Service) rewriteNoteLocked(rel, abs string, mv *moveCtx) ([]LinkRewrite, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if err := s.checkSymlinksForWrite("rewrite-links", rel, abs); err != nil {
-		return err
+		return nil, err
+	}
+	data, err := os.ReadFile(abs)
+	if err != nil {
+		return nil, nil // vanished since the scan: nothing to rewrite
+	}
+	newContent, found, changed := rewriteContent(string(data), rel, mv)
+	if !changed {
+		return found, nil
 	}
 	if int64(len(newContent)) > maxFileSizeBytes {
-		return &PathError{Op: "rewrite-links", Path: rel, Err: ErrFileTooLarge}
+		return nil, &PathError{Op: "rewrite-links", Path: rel, Err: ErrFileTooLarge}
 	}
 	if err := os.WriteFile(abs, []byte(newContent), 0644); err != nil {
-		return &PathError{Op: "rewrite-links", Path: rel, Err: err}
+		return nil, &PathError{Op: "rewrite-links", Path: rel, Err: err}
 	}
-	return nil
+	return found, nil
 }
 
 // rewriteLine scans one line for wikilinks and Markdown links pointing at
@@ -199,7 +258,7 @@ func (s *Service) writeRewrittenNote(rel, abs, newContent string) error {
 // per occurrence found (Path/Line left zero — the caller fills them in).
 // Matches are processed right-to-left by byte offset so earlier replacements
 // don't invalidate later ones' indices.
-func rewriteLine(line string, targets map[string]bool, index map[string][]string, newPath string) (string, []LinkRewrite) {
+func rewriteLine(line string, mv *moveCtx) (string, []LinkRewrite) {
 	type match struct {
 		start, end int
 		rewrite    LinkRewrite
@@ -209,8 +268,8 @@ func rewriteLine(line string, targets map[string]bool, index map[string][]string
 	for _, m := range wikilinkComponentRegex.FindAllStringSubmatchIndex(line, -1) {
 		target := line[m[4]:m[5]]
 		targetSlash := filepath.ToSlash(target)
-		targetNoExt := strings.TrimSuffix(targetSlash, filepath.Ext(targetSlash))
-		if !targets[targetSlash] && !targets[targetNoExt] {
+		targetNoExt := trimExt(targetSlash, mv.oldExt)
+		if !mv.targets[targetSlash] && !mv.targets[targetNoExt] {
 			continue
 		}
 
@@ -223,12 +282,12 @@ func rewriteLine(line string, targets map[string]bool, index map[string][]string
 			alias = line[m[8]:m[9]]
 		}
 
-		if !strings.Contains(target, "/") && len(index[targetNoExt]) > 1 {
+		if !strings.Contains(target, "/") && len(mv.index[targetNoExt]) > 1 {
 			matches = append(matches, match{m[0], m[1], LinkRewrite{OldText: oldText, Ambiguous: true}})
 			continue
 		}
 
-		newTarget := rewriteTarget(target, newPath)
+		newTarget := rewriteTarget(target, mv.newPath, mv.oldExt, mv.newStemCollides)
 		newText := bang + "[[" + newTarget + anchor + alias + "]]"
 		matches = append(matches, match{m[0], m[1], LinkRewrite{OldText: oldText, NewText: newText}})
 	}
@@ -236,8 +295,8 @@ func rewriteLine(line string, targets map[string]bool, index map[string][]string
 	for _, m := range markdownLinkComponentRegex.FindAllStringSubmatchIndex(line, -1) {
 		rawPath := line[m[4]:m[5]]
 		decoded := decodeMarkdownPath(rawPath)
-		decodedNoExt := strings.TrimSuffix(decoded, filepath.Ext(decoded))
-		if !targets[decoded] && !targets[decodedNoExt] {
+		decodedNoExt := trimExt(decoded, mv.oldExt)
+		if !mv.targets[decoded] && !mv.targets[decodedNoExt] {
 			continue
 		}
 
@@ -249,12 +308,12 @@ func rewriteLine(line string, targets map[string]bool, index map[string][]string
 		}
 		closer := line[m[8]:m[9]]
 
-		if !strings.Contains(decoded, "/") && len(index[decodedNoExt]) > 1 {
+		if !strings.Contains(decoded, "/") && len(mv.index[decodedNoExt]) > 1 {
 			matches = append(matches, match{m[0], m[1], LinkRewrite{OldText: oldText, Ambiguous: true}})
 			continue
 		}
 
-		newTarget := encodeMarkdownPath(rewriteTarget(decoded, newPath), rawPath)
+		newTarget := encodeMarkdownPath(rewriteTarget(decoded, mv.newPath, mv.oldExt, mv.newStemCollides), rawPath)
 		newText := prefix + newTarget + fragment + closer
 		matches = append(matches, match{m[0], m[1], LinkRewrite{OldText: oldText, NewText: newText}})
 	}
