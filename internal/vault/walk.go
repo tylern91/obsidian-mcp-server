@@ -3,6 +3,7 @@ package vault
 import (
 	"context"
 	"io/fs"
+	"os"
 	"path/filepath"
 )
 
@@ -52,6 +53,29 @@ func (s *Service) WalkNotes(ctx context.Context, fn func(rel, abs string) error)
 			}
 		}
 
+		if d.Type()&fs.ModeSymlink != 0 && !s.symlinkLeafAllowed(path) {
+			return nil
+		}
+
 		return fn(filepath.ToSlash(rel), path)
 	})
+}
+
+// symlinkLeafAllowed reports whether a symlinked file may be handed to walk
+// callers: its target must resolve to a regular file under the vault root that
+// is neither internal state nor ignored.
+func (s *Service) symlinkLeafAllowed(path string) bool {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil || !s.isUnderRoot(resolved) {
+		return false
+	}
+	rel, err := filepath.Rel(s.root, resolved)
+	if err != nil || s.restrictedRel(rel) {
+		return false
+	}
+	if s.filter != nil && !s.filter.IsAllowedExtension(resolved) {
+		return false
+	}
+	info, err := os.Stat(resolved)
+	return err == nil && info.Mode().IsRegular()
 }

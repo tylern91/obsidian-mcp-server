@@ -45,7 +45,7 @@ func (s *Service) RenameTag(ctx context.Context, oldTag, newTag string) ([]TagRe
 			return nil // unreadable: skip, don't fail the whole rename
 		}
 
-		newContent, fmHit, inlineCount, err := renameTagInContent(string(data), oldTag, newTag)
+		_, fmHit, inlineCount, err := renameTagInContent(string(data), oldTag, newTag)
 		if err != nil {
 			return &PathError{Op: "rename_tag", Path: rel, Err: err}
 		}
@@ -53,10 +53,16 @@ func (s *Service) RenameTag(ctx context.Context, oldTag, newTag string) ([]TagRe
 			return nil
 		}
 
-		if err := s.writeRenamedTagNote(rel, abs, newContent); err != nil {
+		if afterUnlockedReadHook != nil {
+			afterUnlockedReadHook(rel)
+		}
+		rename, err := s.renameTagLocked(rel, abs, oldTag, newTag)
+		if err != nil {
 			return err
 		}
-		renames = append(renames, TagRename{Path: rel, FrontmatterHit: fmHit, InlineCount: inlineCount})
+		if rename != nil {
+			renames = append(renames, *rename)
+		}
 		return nil
 	})
 	if walkErr != nil {
@@ -65,22 +71,35 @@ func (s *Service) RenameTag(ctx context.Context, oldTag, newTag string) ([]TagRe
 	return renames, nil
 }
 
-// writeRenamedTagNote writes newContent to a single note already known
-// (from the WalkNotes callback) to exist at abs.
-func (s *Service) writeRenamedTagNote(rel, abs, newContent string) error {
+// renameTagLocked re-reads the note under s.mu and applies the rename to
+// those fresh bytes, so a write that landed after the caller's scan read is
+// never overwritten with stale content. Returns nil when the fresh content
+// no longer contains the tag.
+func (s *Service) renameTagLocked(rel, abs, oldTag, newTag string) (*TagRename, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if err := s.checkSymlinksForWrite("rename_tag", rel, abs); err != nil {
-		return err
+		return nil, err
+	}
+	data, err := os.ReadFile(abs)
+	if err != nil {
+		return nil, nil // vanished since the scan: nothing to rename
+	}
+	newContent, fmHit, inlineCount, err := renameTagInContent(string(data), oldTag, newTag)
+	if err != nil {
+		return nil, &PathError{Op: "rename_tag", Path: rel, Err: err}
+	}
+	if !fmHit && inlineCount == 0 {
+		return nil, nil
 	}
 	if int64(len(newContent)) > maxFileSizeBytes {
-		return &PathError{Op: "rename_tag", Path: rel, Err: ErrFileTooLarge}
+		return nil, &PathError{Op: "rename_tag", Path: rel, Err: ErrFileTooLarge}
 	}
 	if err := os.WriteFile(abs, []byte(newContent), 0644); err != nil {
-		return &PathError{Op: "rename_tag", Path: rel, Err: err}
+		return nil, &PathError{Op: "rename_tag", Path: rel, Err: err}
 	}
-	return nil
+	return &TagRename{Path: rel, FrontmatterHit: fmHit, InlineCount: inlineCount}, nil
 }
 
 // renameTagInContent renames oldTag to newTag in content's frontmatter
@@ -135,7 +154,7 @@ func renameTagInContent(content, oldTag, newTag string) (string, bool, int, erro
 	}
 
 	if hasFM {
-		return "---\n" + newRawFM + "---\n" + newBody, fmHit, inlineCount, nil
+		return assembleFrontmatter(newRawFM, newBody, hasCRLFFrontmatter(content)), fmHit, inlineCount, nil
 	}
 	return newBody, fmHit, inlineCount, nil
 }

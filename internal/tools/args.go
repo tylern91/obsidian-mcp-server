@@ -9,35 +9,65 @@ import (
 	"github.com/tylern91/obsidian-mcp-server/internal/vault"
 )
 
-// optStringSlice unmarshals a string tool argument as a JSON array into a
-// []string. An absent or empty argument returns a nil slice, not an error.
-// Returns a tool error result if the argument is present but invalid JSON.
+// optStringSlice reads a tool argument as a list of strings. It accepts a
+// JSON-array string or a native JSON array. An absent or empty argument
+// returns a nil slice, not an error. Returns a tool error result if the
+// argument is present but of another type or invalid.
 func optStringSlice(req mcp.CallToolRequest, name string) ([]string, *mcp.CallToolResult) {
-	raw := req.GetString(name, "")
-	if raw == "" {
+	val, present := req.GetArguments()[name]
+	if !present || val == nil {
 		return nil, nil
 	}
 	var out []string
-	if err := json.Unmarshal([]byte(raw), &out); err != nil {
-		return nil, mcp.NewToolResultError(fmt.Sprintf("invalid %s: %v", name, err))
+	switch v := val.(type) {
+	case string:
+		if v == "" {
+			return nil, nil
+		}
+		if err := json.Unmarshal([]byte(v), &out); err != nil {
+			return nil, mcp.NewToolResultError(fmt.Sprintf("invalid %s: %v", name, err))
+		}
+	case []string:
+		out = v
+	case []any:
+		out = make([]string, len(v))
+		for i, item := range v {
+			str, ok := item.(string)
+			if !ok {
+				return nil, mcp.NewToolResultError(fmt.Sprintf("invalid %s: element %d is %T, want string", name, i, item))
+			}
+			out[i] = str
+		}
+	default:
+		return nil, mcp.NewToolResultError(fmt.Sprintf("invalid %s: got %T, want a JSON array", name, val))
 	}
 	return out, nil
 }
 
-// optStringMap unmarshals a string tool argument as a JSON object into a
-// map[string]any. An absent or empty argument returns a nil map, not an
-// error. Returns a tool error result if the argument is present but invalid
-// JSON.
+// optStringMap reads a tool argument as a JSON object. It accepts a
+// JSON-object string or a native JSON object. An absent or empty argument
+// returns a nil map, not an error. Returns a tool error result if the
+// argument is present but of another type or invalid.
 func optStringMap(req mcp.CallToolRequest, name string) (map[string]any, *mcp.CallToolResult) {
-	raw := req.GetString(name, "")
-	if raw == "" {
+	val, present := req.GetArguments()[name]
+	if !present || val == nil {
 		return nil, nil
 	}
-	var out map[string]any
-	if err := json.Unmarshal([]byte(raw), &out); err != nil {
-		return nil, mcp.NewToolResultError(fmt.Sprintf("invalid %s: %v", name, err))
+	switch v := val.(type) {
+	case string:
+		if v == "" {
+			return nil, nil
+		}
+		var out map[string]any
+		if err := json.Unmarshal([]byte(v), &out); err != nil {
+			return nil, mcp.NewToolResultError(fmt.Sprintf("invalid %s: %v", name, err))
+		}
+		return out, nil
+	case map[string]any:
+		return v, nil
+	default:
+		return nil, mcp.NewToolResultError(fmt.Sprintf("invalid %s: got %T, want a JSON object", name, val))
 	}
-	return out, nil
 }
 
 // effectiveLimit resolves the limit a caller should get: requested if
@@ -78,6 +108,9 @@ func ifMatchOpt(ifMatch string) []vault.WriteOpt {
 func vaultWriteError(err error) *mcp.CallToolResult {
 	if errors.Is(err, vault.ErrRevisionConflict) {
 		return mcp.NewToolResultError("REVISION_CONFLICT: " + err.Error())
+	}
+	if errors.Is(err, vault.ErrNotANote) {
+		return mcp.NewToolResultError("NOT_A_NOTE: " + err.Error())
 	}
 	return mcp.NewToolResultError(err.Error())
 }

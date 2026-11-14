@@ -579,3 +579,18 @@ func TestReplaceInNoteHandler_RequiredParams(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
 }
+
+func TestReplaceInNoteHandler_EmptyPattern(t *testing.T) {
+	deps := mutableDeps(t)
+	handler := tools.ReplaceInNoteHandler(deps)
+	before := readEtag(t, deps, "Notes/simple.md")
+
+	result, err := handler(context.Background(), makeRequest(
+		"path", "Notes/simple.md",
+		"pattern", "",
+		"replacement", "X",
+	))
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	assert.Equal(t, before, readEtag(t, deps, "Notes/simple.md"))
+}

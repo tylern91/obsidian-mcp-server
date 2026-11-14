@@ -437,3 +437,108 @@ func TestService_MoveNote(t *testing.T) {
 		assert.Equal(t, 1, successes, "exactly one concurrent move to the same dst should succeed")
 	})
 }
+
+// ----------------------------------------------------------------------------
+// Security guards: symlink target re-check, directory rejection, read errors
+// ----------------------------------------------------------------------------
+
+func TestService_SymlinkToIgnoredTargetRejected(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".git"), 0755))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "notes"), 0755))
+	cfg := filepath.Join(dir, ".git", "config")
+	require.NoError(t, os.WriteFile(cfg, []byte("orig"), 0644))
+	if err := os.Symlink(filepath.Join("..", ".git", "config"), filepath.Join(dir, "notes", "cfg.md")); err != nil {
+		t.Skipf("symlinks not supported: %v", err)
+	}
+
+	svc := vault.New(dir, vault.NewPathFilter(defaultIgnore, defaultExts))
+
+	_, err := svc.ReadNote(ctx, "notes/cfg.md")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, vault.ErrPathRestricted)
+
+	err = svc.WriteNote(ctx, "notes/cfg.md", "pwn", vault.WriteModeOverwrite)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, vault.ErrPathRestricted)
+
+	got, readErr := os.ReadFile(cfg)
+	require.NoError(t, readErr)
+	assert.Equal(t, "orig", string(got))
+}
+
+func TestService_CaseFoldedIgnoredPathRejected(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	dir := t.TempDir()
+	svc := vault.New(dir, vault.NewPathFilter(defaultIgnore, defaultExts))
+
+	for _, p := range []string{".GIT/config", ".OBSIDIAN-MCP/trash/x.md"} {
+		err := svc.WriteNote(ctx, p, "x", vault.WriteModeOverwrite)
+		require.Error(t, err, p)
+		assert.ErrorIs(t, err, vault.ErrPathRestricted, p)
+	}
+}
+
+func TestService_DeleteNote_RejectsDirectory(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "Dir"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "Dir", "a.md"), []byte("a"), 0644))
+	svc := vault.New(dir, nil)
+
+	for _, permanent := range []bool{false, true} {
+		err := svc.DeleteNote(ctx, "Dir", "Dir", permanent)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, vault.ErrNotANote)
+		assert.FileExists(t, filepath.Join(dir, "Dir", "a.md"))
+	}
+}
+
+func TestService_MoveNote_RejectsDirectory(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "Dir"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "Dir", "a.md"), []byte("a"), 0644))
+	svc := vault.New(dir, nil)
+
+	for _, dryRun := range []bool{false, true} {
+		_, err := svc.MoveNote(ctx, "Dir", "Other", "Dir", false, dryRun)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, vault.ErrNotANote)
+		assert.FileExists(t, filepath.Join(dir, "Dir", "a.md"))
+		assert.NoDirExists(t, filepath.Join(dir, "Other"))
+	}
+}
+
+func TestService_WriteNote_AppendUnreadableDoesNotClobber(t *testing.T) {
+	t.Parallel()
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores file permissions")
+	}
+	ctx := context.Background()
+
+	dir := t.TempDir()
+	p := filepath.Join(dir, "note.md")
+	require.NoError(t, os.WriteFile(p, []byte("keep"), 0644))
+	require.NoError(t, os.Chmod(p, 0200))
+	t.Cleanup(func() { _ = os.Chmod(p, 0644) })
+	svc := vault.New(dir, nil)
+
+	for _, mode := range []vault.WriteMode{vault.WriteModeAppend, vault.WriteModePrepend} {
+		err := svc.WriteNote(ctx, "note.md", "x", mode)
+		require.Error(t, err)
+	}
+	require.NoError(t, os.Chmod(p, 0644))
+	got, err := os.ReadFile(p)
+	require.NoError(t, err)
+	assert.Equal(t, "keep", string(got))
+}

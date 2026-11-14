@@ -297,3 +297,29 @@ func TestPathError_WrapsSentinels(t *testing.T) {
 		})
 	}
 }
+
+// ----------------------------------------------------------------------------
+// Case-insensitive matching (case-insensitive filesystems: APFS, NTFS)
+// ----------------------------------------------------------------------------
+
+func TestPathFilter_IsIgnored_CaseInsensitive(t *testing.T) {
+	t.Parallel()
+
+	f := vault.NewPathFilter([]string{".git", ".obsidian"}, nil)
+	for _, p := range []string{".GIT/config", ".Obsidian/plugins/x/main.js", "a/.Git/HEAD"} {
+		if !f.IsIgnored(p) {
+			t.Errorf("IsIgnored(%q) = false, want true", p)
+		}
+	}
+	if f.IsIgnored(".git-backup/x.md") {
+		t.Error("IsIgnored(.git-backup/x.md) = true, want false")
+	}
+}
+
+func TestIsInternalState_CaseInsensitive(t *testing.T) {
+	t.Parallel()
+
+	if !vault.IsInternalState(".OBSIDIAN-MCP/trash/x.md") {
+		t.Error("IsInternalState(.OBSIDIAN-MCP/trash/x.md) = false, want true")
+	}
+}

@@ -3,6 +3,7 @@ package vault_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -161,4 +162,17 @@ func TestService_GetBacklinks(t *testing.T) {
 		require.Error(t, err)
 		assert.True(t, errors.Is(err, vault.ErrPathTraversal))
 	})
+}
+
+func TestService_GetBacklinks_LongLine(t *testing.T) {
+	ctx := context.Background()
+	svc := vault.New(t.TempDir(), nil)
+	require.NoError(t, svc.WriteNote(ctx, "target.md", "# T\n", vault.WriteModeOverwrite))
+	require.NoError(t, svc.WriteNote(ctx, "source.md", strings.Repeat("x", 70000)+"\nSee [[target]]\n", vault.WriteModeOverwrite))
+
+	backlinks, err := svc.GetBacklinks(ctx, "target.md")
+	require.NoError(t, err)
+	require.Len(t, backlinks, 1)
+	assert.Equal(t, "source.md", backlinks[0].Path)
+	assert.Equal(t, 2, backlinks[0].Line)
 }

@@ -217,23 +217,27 @@ func (s *Service) AddTag(ctx context.Context, path, tag, location string, opts .
 	}
 
 	if location == "frontmatter" {
-		content, err = addTagToFrontmatter(mapping, tag, body)
+		content, err = addTagToFrontmatter(mapping, tag, body, hasCRLFFrontmatter(string(data)))
 		if err != nil {
 			return &PathError{Op: "add_tag", Path: path, Err: err}
 		}
 	} else {
 		// Inline: append \n#tag to the body, then reassemble.
+		eol := "\n"
+		if hasCRLFFrontmatter(content) || strings.Contains(body, "\r\n") {
+			eol = "\r\n"
+		}
 		newBody := body
 		if !strings.HasSuffix(newBody, "\n") {
-			newBody += "\n"
+			newBody += eol
 		}
-		newBody += "#" + tag + "\n"
+		newBody += "#" + tag + eol
 
 		if hasFM {
 			// Reuse the original raw frontmatter text verbatim instead of
 			// re-marshaling the unchanged mapping, so untouched notes don't
 			// get a gratuitous YAML reformat.
-			content = "---\n" + rawFM + "---\n" + newBody
+			content = assembleFrontmatter(rawFM, newBody, hasCRLFFrontmatter(string(data)))
 		} else {
 			content = newBody
 		}
@@ -253,7 +257,7 @@ func (s *Service) AddTag(ctx context.Context, path, tag, location string, opts .
 // addTagToFrontmatter appends tag to the "tags" sequence in mapping (or creates
 // the key if absent).  Returns the fully assembled file content on success.
 // No-op if the tag is already present.
-func addTagToFrontmatter(mapping *yaml.Node, tag, body string) (string, error) {
+func addTagToFrontmatter(mapping *yaml.Node, tag, body string, crlf bool) (string, error) {
 	// Find the "tags" key in the mapping.
 	tagsIdx := -1
 	for i := 0; i+1 < len(mapping.Content); i += 2 {
@@ -291,7 +295,7 @@ func addTagToFrontmatter(mapping *yaml.Node, tag, body string) (string, error) {
 				if err != nil {
 					return "", fmt.Errorf("marshal: %w", err)
 				}
-				return "---\n" + string(out) + "---\n" + body, nil
+				return assembleFrontmatter(string(out), body, crlf), nil
 			}
 		}
 
@@ -303,7 +307,7 @@ func addTagToFrontmatter(mapping *yaml.Node, tag, body string) (string, error) {
 		return "", fmt.Errorf("marshal: %w", err)
 	}
 
-	return "---\n" + string(out) + "---\n" + body, nil
+	return assembleFrontmatter(string(out), body, crlf), nil
 }
 
 // RemoveTag removes all occurrences of tag from both the frontmatter "tags"
@@ -434,7 +438,7 @@ func (s *Service) RemoveTag(ctx context.Context, path, tag string, opts ...Write
 		if marshalErr != nil {
 			return &PathError{Op: "remove_tag", Path: path, Err: fmt.Errorf("marshal: %w", marshalErr)}
 		}
-		assembled = "---\n" + string(marshaledFM) + "---\n" + newBody
+		assembled = assembleFrontmatter(string(marshaledFM), newBody, hasCRLFFrontmatter(string(data)))
 	} else {
 		assembled = newBody
 	}

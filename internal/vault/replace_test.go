@@ -98,3 +98,51 @@ func TestService_ReplaceInNote(t *testing.T) {
 		require.Error(t, err)
 	})
 }
+
+func TestService_ReplaceInNote_EmptyPattern(t *testing.T) {
+	ctx := context.Background()
+	for _, isRegex := range []bool{false, true} {
+		svc := newLinkTestVault(t)
+		require.NoError(t, svc.WriteNote(ctx, "a.md", "abc\n", vault.WriteModeOverwrite))
+
+		_, err := svc.ReplaceInNote(ctx, "a.md", "", "X", isRegex, 0)
+		require.Error(t, err)
+
+		note, err := svc.ReadNote(ctx, "a.md")
+		require.NoError(t, err)
+		assert.Equal(t, "abc\n", note.Content)
+	}
+}
+
+func TestService_ReplaceInNote_RegexContext(t *testing.T) {
+	ctx := context.Background()
+	svc := newLinkTestVault(t)
+	require.NoError(t, svc.WriteNote(ctx, "a.md", "xfoo foo", vault.WriteModeOverwrite))
+
+	result, err := svc.ReplaceInNote(ctx, "a.md", `\Bfoo`, "BAR", true, 0)
+	require.NoError(t, err)
+	assert.Equal(t, 1, result.Replaced)
+
+	note, err := svc.ReadNote(ctx, "a.md")
+	require.NoError(t, err)
+	assert.Equal(t, "xBAR foo", note.Content)
+}
+
+func TestService_ReplaceInNote_IfMatch(t *testing.T) {
+	ctx := context.Background()
+	svc := newLinkTestVault(t)
+	require.NoError(t, svc.WriteNote(ctx, "a.md", "foo\n", vault.WriteModeOverwrite))
+	old, err := svc.ReadNote(ctx, "a.md")
+	require.NoError(t, err)
+	require.NoError(t, svc.WriteNote(ctx, "a.md", "foo changed\n", vault.WriteModeOverwrite))
+
+	_, err = svc.ReplaceInNote(ctx, "a.md", "foo", "bar", false, 0, vault.WithIfMatch(old.Etag))
+	require.ErrorIs(t, err, vault.ErrRevisionConflict)
+
+	note, err := svc.ReadNote(ctx, "a.md")
+	require.NoError(t, err)
+	assert.Equal(t, "foo changed\n", note.Content)
+
+	_, err = svc.ReplaceInNote(ctx, "a.md", "foo", "bar", false, 0, vault.WithIfMatch(note.Etag))
+	require.NoError(t, err)
+}

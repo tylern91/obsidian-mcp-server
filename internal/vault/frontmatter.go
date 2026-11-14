@@ -12,8 +12,9 @@ import (
 
 // SplitFrontmatter splits Markdown content into its YAML frontmatter and body.
 //
-// Frontmatter is recognised when the content starts with exactly "---\n" and
-// contains a subsequent line that is exactly "---".  The delimiters themselves
+// Frontmatter is recognised when the content starts with exactly "---\n" (or
+// "---\r\n") and contains a subsequent line that is exactly "---" (or "---\r"
+// for a CRLF note).  The delimiters themselves
 // are not included in the returned raw or body strings.
 //
 // Returns:
@@ -22,11 +23,15 @@ import (
 //	body  – the content after the closing delimiter (full content when hasFM is false)
 //	hasFM – true only when both delimiters were found
 func SplitFrontmatter(content string) (raw, body string, hasFM bool) {
-	if !strings.HasPrefix(content, "---\n") {
+	crlf := hasCRLFFrontmatter(content)
+	openLen := 4
+	if crlf {
+		openLen = 5
+	} else if !strings.HasPrefix(content, "---\n") {
 		return "", content, false
 	}
 
-	rest := content[4:] // skip the opening "---\n"
+	rest := content[openLen:] // skip the opening delimiter
 
 	for i := 0; i < len(rest); {
 		nl := strings.Index(rest[i:], "\n")
@@ -42,6 +47,10 @@ func SplitFrontmatter(content string) (raw, body string, hasFM bool) {
 			nextI = i + nl + 1
 		}
 
+		if crlf {
+			line = strings.TrimSuffix(line, "\r")
+		}
+
 		if line == "---" {
 			return rest[:i], rest[nextI:], true
 		}
@@ -54,6 +63,21 @@ func SplitFrontmatter(content string) (raw, body string, hasFM bool) {
 	}
 
 	return "", content, false
+}
+
+// hasCRLFFrontmatter reports whether content opens with a CRLF frontmatter
+// delimiter.
+func hasCRLFFrontmatter(content string) bool {
+	return strings.HasPrefix(content, "---\r\n")
+}
+
+// assembleFrontmatter joins marshaled YAML and a body with "---" delimiters,
+// using CRLF line endings throughout when crlf is set.
+func assembleFrontmatter(yamlText, body string, crlf bool) string {
+	if !crlf {
+		return "---\n" + yamlText + "---\n" + body
+	}
+	return "---\r\n" + strings.ReplaceAll(strings.ReplaceAll(yamlText, "\r\n", "\n"), "\n", "\r\n") + "---\r\n" + body
 }
 
 // ParseFrontmatter parses raw YAML text into a map[string]any.
@@ -201,7 +225,7 @@ func (s *Service) UpdateFrontmatter(ctx context.Context, path string, updates ma
 		return &PathError{Op: "update_frontmatter", Path: path, Err: fmt.Errorf("marshal: %w", marshalErr)}
 	}
 
-	assembled := "---\n" + string(out) + "---\n" + body
+	assembled := assembleFrontmatter(string(out), body, hasFM && hasCRLFFrontmatter(content))
 
 	if writeErr := os.WriteFile(absPath, []byte(assembled), 0644); writeErr != nil {
 		return &PathError{Op: "update_frontmatter", Path: path, Err: writeErr}
