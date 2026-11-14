@@ -62,7 +62,14 @@ curl -fsSL -o "${tmp_dir}/${asset}.tar.gz.sha256" \
   "https://github.com/${REPO}/releases/download/${VERSION}/${asset}.tar.gz.sha256"
 
 echo "Verifying checksum …" >&2
-(cd "$tmp_dir" && shasum -a 256 -c "${asset}.tar.gz.sha256")
+if command -v sha256sum >/dev/null 2>&1; then
+  (cd "$tmp_dir" && sha256sum -c "${asset}.tar.gz.sha256")
+elif command -v shasum >/dev/null 2>&1; then
+  (cd "$tmp_dir" && shasum -a 256 -c "${asset}.tar.gz.sha256")
+else
+  echo "obsidian-mcp: need sha256sum or shasum to verify the download" >&2
+  exit 1
+fi
 
 tar -xzf "${tmp_dir}/${asset}.tar.gz" -C "$tmp_dir"
 

@@ -25,6 +25,7 @@
 set -Eeuo pipefail
 
 version="${1:-}"
+# shellcheck disable=SC2034 # positional arg, informational only
 label="${2:-patch}"
 breaking="${3:-false}"
 from_existing=false

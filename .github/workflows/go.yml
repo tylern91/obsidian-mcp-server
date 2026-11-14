@@ -10,6 +10,10 @@ on:
       - "CHANGELOG.md"
       - "internal/version/version.go"
       - "scripts/check-version-sync.sh"
+      - "install.sh"
+      - "scripts/*.sh"
+      - "scripts/pre-push"
+      - "packaging/mcpb/launch.sh"
       - ".golangci.yml"
       - ".github/workflows/go.yml"
       - "tests/acceptance/**"
@@ -21,6 +25,10 @@ on:
       - "CHANGELOG.md"
       - "internal/version/version.go"
       - "scripts/check-version-sync.sh"
+      - "install.sh"
+      - "scripts/*.sh"
+      - "scripts/pre-push"
+      - "packaging/mcpb/launch.sh"
       - ".golangci.yml"
       - ".github/workflows/go.yml"
       - "tests/acceptance/**"
@@ -42,6 +50,19 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
       - run: bash scripts/check-version-sync.sh
+
+  shellcheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      # --severity=warning: the intentional SC2016 (info) and SC2004 (style)
+      # notes in scripts/stamp-changelog-refs.sh must not fail the job.
+      - name: shellcheck
+        run: shellcheck -x --severity=warning install.sh packaging/mcpb/launch.sh scripts/*.sh scripts/pre-push
 
   lint:
     runs-on: ubuntu-latest
