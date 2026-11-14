@@ -153,3 +153,31 @@ func TestService_WalkNotes(t *testing.T) {
 		assert.Equal(t, []string{"a.md"}, visited, "trash contents must never surface in a walk")
 	})
 }
+
+func TestService_WalkNotes_Symlinks(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	outside := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("TOPSECRET"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "real.md"), []byte("r"), 0644))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".git"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".git", "config"), []byte("c"), 0644))
+	if err := os.Symlink(filepath.Join(outside, "secret.txt"), filepath.Join(dir, "leak.md")); err != nil {
+		t.Skipf("symlinks not supported: %v", err)
+	}
+	require.NoError(t, os.Symlink(filepath.Join(".git", "config"), filepath.Join(dir, "cfg.md")))
+	require.NoError(t, os.Symlink("real.md", filepath.Join(dir, "alias.md")))
+
+	svc := vault.New(dir, vault.NewPathFilter([]string{".git"}, []string{".md"}))
+
+	var visited []string
+	require.NoError(t, svc.WalkNotes(context.Background(), func(rel, abs string) error {
+		visited = append(visited, rel)
+		return nil
+	}))
+	assert.NotContains(t, visited, "leak.md")
+	assert.NotContains(t, visited, "cfg.md")
+	assert.Contains(t, visited, "real.md")
+	assert.Contains(t, visited, "alias.md")
+}

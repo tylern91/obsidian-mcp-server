@@ -160,6 +160,9 @@ func (s *Service) DeleteNote(ctx context.Context, path, confirm string, permanen
 	if err := s.checkSymlinksForWrite("delete", path, absPath); err != nil {
 		return err
 	}
+	if err := checkRegularFile("delete", path, absPath); err != nil {
+		return err
+	}
 
 	if o.ifMatch != "" {
 		data, _, readErr := readNoteBytes(absPath)
@@ -185,6 +188,9 @@ func (s *Service) DeleteNote(ctx context.Context, path, confirm string, permanen
 	}
 
 	trashDst := filepath.Join(s.root, internalStateDir, "trash", trashTimestamp(), cleaned)
+	if err := s.checkContained("delete", path, trashDst); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(trashDst), 0755); err != nil {
 		return &PathError{Op: "delete", Path: path, Err: err}
 	}
@@ -218,6 +224,9 @@ const trashTimestampLayout = "20060102T150405.000000000"
 // the norm for this transport.
 func (s *Service) PruneTrash(now time.Time, retentionDays int) (int, error) {
 	trashRoot := filepath.Join(s.root, internalStateDir, "trash")
+	if err := s.checkContained("prune-trash", trashRoot, trashRoot); err != nil {
+		return 0, err
+	}
 	entries, err := os.ReadDir(trashRoot)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -299,6 +308,9 @@ func (s *Service) MoveNote(ctx context.Context, src, dst, confirm string, update
 			}
 			return nil, &PathError{Op: "move", Path: src, Err: statErr}
 		}
+		if err := checkRegularFile("move", src, srcAbs); err != nil {
+			return nil, err
+		}
 	} else if err := s.moveFileLocked(src, srcAbs, dst, dstAbs, opts...); err != nil {
 		return nil, err
 	}
@@ -306,10 +318,10 @@ func (s *Service) MoveNote(ctx context.Context, src, dst, confirm string, update
 	result := &MoveResult{Src: src, Dst: dst, Moved: !dryRun}
 	if updateLinks {
 		links, linkErr := s.RewriteLinksOnMove(ctx, src, dst, dryRun)
+		result.Links = links
 		if linkErr != nil {
 			return result, linkErr
 		}
-		result.Links = links
 	}
 	return result, nil
 }
@@ -332,6 +344,9 @@ func (s *Service) moveFileLocked(src, srcAbs, dst, dstAbs string, opts ...WriteO
 		return err
 	}
 	if err := s.checkSymlinksForWrite("move", dst, dstAbs); err != nil {
+		return err
+	}
+	if err := checkRegularFile("move", src, srcAbs); err != nil {
 		return err
 	}
 

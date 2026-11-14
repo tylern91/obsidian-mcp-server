@@ -188,7 +188,7 @@ func moveNoteHandler(deps Deps) server.ToolHandlerFunc {
 		ifMatch := req.GetString("if_match", "")
 
 		result, err := deps.Vault.MoveNote(ctx, src, dst, confirm, updateLinks, dryRun, ifMatchOpt(ifMatch)...)
-		if err != nil {
+		if err != nil && (result == nil || !result.Moved) {
 			return vaultWriteError(err), nil
 		}
 
@@ -210,13 +210,23 @@ func moveNoteHandler(deps Deps) server.ToolHandlerFunc {
 			Dst     string             `json:"dst"`
 			Moved   bool               `json:"moved"`
 			Links   []linkRewriteEntry `json:"links,omitempty"`
+
+			// Set only when the file moved but link rewriting failed part-way.
+			LinksComplete    *bool  `json:"linksComplete,omitempty"`
+			LinkRewriteError string `json:"linkRewriteError,omitempty"`
 		}
-		return response.ToolResult(req, deps.PrettyPrint, moveResponse{
+		resp := moveResponse{
 			Success: true,
 			Src:     result.Src,
 			Dst:     result.Dst,
 			Moved:   result.Moved,
 			Links:   links,
-		})
+		}
+		if err != nil {
+			incomplete := false
+			resp.LinksComplete = &incomplete
+			resp.LinkRewriteError = err.Error()
+		}
+		return response.ToolResult(req, deps.PrettyPrint, resp)
 	}
 }

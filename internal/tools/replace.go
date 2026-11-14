@@ -29,6 +29,9 @@ func replaceInNoteSpec(deps Deps) toolSpec {
 		mcp.WithNumber("maxOccurrences",
 			mcp.Description("Maximum number of occurrences to replace, in document order. 0 or omitted means unbounded."),
 		),
+		mcp.WithString("if_match",
+			mcp.Description("Optional etag from a prior read; the replace fails with REVISION_CONFLICT if the note's current content does not match."),
+		),
 		mcp.WithBoolean("prettyPrint",
 			mcp.Description("Format the JSON response with indentation (default: false)"),
 		),
@@ -54,10 +57,11 @@ func replaceInNoteHandler(deps Deps) server.ToolHandlerFunc {
 		}
 		isRegex := req.GetBool("isRegex", false)
 		maxOccurrences := req.GetInt("maxOccurrences", 0)
+		ifMatch := req.GetString("if_match", "")
 
-		result, err := deps.Vault.ReplaceInNote(ctx, path, pattern, replacement, isRegex, maxOccurrences)
+		result, err := deps.Vault.ReplaceInNote(ctx, path, pattern, replacement, isRegex, maxOccurrences, ifMatchOpt(ifMatch)...)
 		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+			return vaultWriteError(err), nil
 		}
 
 		type replaceResponse struct {

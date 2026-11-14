@@ -18,6 +18,7 @@ var (
 	ErrHeadingNotFound    = errors.New("heading not found")
 	ErrFileTooLarge       = errors.New("file exceeds maximum allowed size")
 	ErrRevisionConflict   = errors.New("revision conflict: if_match does not match current content")
+	ErrNotANote           = errors.New("not a note: path is a directory or not a regular file")
 )
 
 // PathError records an error and the path and operation that caused it.

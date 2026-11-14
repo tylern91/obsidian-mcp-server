@@ -20,10 +20,15 @@ type ReplaceResult struct {
 // backreferences) vs. literal substring matching. maxOccurrences <= 0 means
 // unbounded; otherwise only the first maxOccurrences matches (in document
 // order) are replaced, and OccurrencesFound still reports the true total so
-// a caller can tell the result was capped.
-func (s *Service) ReplaceInNote(ctx context.Context, path, pattern, replacement string, isRegex bool, maxOccurrences int) (*ReplaceResult, error) {
+// a caller can tell the result was capped. An empty pattern is rejected.
+// WithIfMatch makes the replace conditional on the note's current etag.
+func (s *Service) ReplaceInNote(ctx context.Context, path, pattern, replacement string, isRegex bool, maxOccurrences int, opts ...WriteOpt) (*ReplaceResult, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, &PathError{Op: "replace_in_note", Path: path, Err: err}
+	}
+
+	if pattern == "" {
+		return nil, &PathError{Op: "replace_in_note", Path: path, Err: fmt.Errorf("pattern must not be empty")}
 	}
 
 	_, absPath, err := s.sanitizePath("replace_in_note", path)
@@ -45,6 +50,9 @@ func (s *Service) ReplaceInNote(ctx context.Context, path, pattern, replacement 
 	if err != nil {
 		return nil, &PathError{Op: "replace_in_note", Path: path, Err: err}
 	}
+	if err := checkIfMatch("replace_in_note", path, data, applyWriteOpts(opts)); err != nil {
+		return nil, err
+	}
 	content := string(data)
 
 	var re *regexp.Regexp
@@ -57,7 +65,7 @@ func (s *Service) ReplaceInNote(ctx context.Context, path, pattern, replacement 
 		re = regexp.MustCompile(regexp.QuoteMeta(pattern))
 	}
 
-	matches := re.FindAllStringIndex(content, -1)
+	matches := re.FindAllStringSubmatchIndex(content, -1)
 	found := len(matches)
 	if found == 0 {
 		return &ReplaceResult{Path: path, OccurrencesFound: 0, Replaced: 0}, nil
@@ -74,7 +82,7 @@ func (s *Service) ReplaceInNote(ctx context.Context, path, pattern, replacement 
 		m := matches[i]
 		b.WriteString(content[last:m[0]])
 		if isRegex {
-			b.WriteString(re.ReplaceAllString(content[m[0]:m[1]], replacement))
+			b.Write(re.ExpandString(nil, replacement, content, m))
 		} else {
 			b.WriteString(replacement)
 		}

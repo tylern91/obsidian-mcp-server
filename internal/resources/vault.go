@@ -19,9 +19,14 @@ const resourceCacheTTL = 30 * time.Second
 func cachedResourceHandler(deps Deps, compute func(context.Context, Deps) ([]mcp.ResourceContents, error)) server.ResourceHandlerFunc {
 	cache := &resourceCache{ttl: resourceCacheTTL}
 	return func(ctx context.Context, req mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
-		return cache.get(deps.Vault.Root(), func() ([]mcp.ResourceContents, error) {
+		contents, err := cache.get(deps.Vault.Root(), func() ([]mcp.ResourceContents, error) {
 			return compute(ctx, deps)
 		})
+		if err != nil {
+			// Errors are not cached; clients still get an {error, uri} payload.
+			return response.ErrorResourceContents(req.Params.URI, err.Error()), nil
+		}
+		return contents, nil
 	}
 }
 
@@ -46,7 +51,7 @@ func computeVaultStats(ctx context.Context, deps Deps) ([]mcp.ResourceContents, 
 
 	vs, err := deps.Vault.VaultStats(ctx, vault.VaultStatsOpts{})
 	if err != nil {
-		return response.ErrorResourceContents("obsidian://vault/stats", fmt.Sprintf("vault walk failed: %v", err)), nil
+		return nil, fmt.Errorf("vault walk failed: %w", err)
 	}
 
 	topEntries := vault.TopTagsByCount(vs.TagCounts, 10)
@@ -78,7 +83,7 @@ func registerVaultTags(s *server.MCPServer, deps Deps) {
 func computeVaultTags(ctx context.Context, deps Deps) ([]mcp.ResourceContents, error) {
 	tagCounts, err := deps.Vault.AggregateTags(ctx)
 	if err != nil {
-		return response.ErrorResourceContents("obsidian://vault/tags", fmt.Sprintf("tag aggregation failed: %v", err)), nil
+		return nil, fmt.Errorf("tag aggregation failed: %w", err)
 	}
 
 	entries := vault.TopTagsByCount(tagCounts, 0)

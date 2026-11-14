@@ -20,6 +20,16 @@ import (
 // content for snippet extraction) on very large vaults.
 const maxBM25Docs = 10_000
 
+// countTokens is a seam so tests can count token-count calls.
+var countTokens = response.CountTokens
+
+// bm25Scored is a scored candidate before snippets and token counts are built.
+type bm25Scored struct {
+	dc     *docContent
+	score  float64
+	reason string
+}
+
 // BM25 Okapi parameters.
 const (
 	bm25K1 = 1.2
@@ -394,7 +404,7 @@ func (s *Service) SearchBM25(ctx context.Context, opts BM25Options) ([]BM25Resul
 	stats.avgDL = float64(totalTokens) / float64(stats.N)
 
 	// ---- Pass 2: Scoring (uses cached docs — no second WalkNotes) ----
-	var results []BM25Result
+	var scored []bm25Scored
 
 	for _, dc := range docs {
 		if err := ctx.Err(); err != nil {
@@ -444,28 +454,33 @@ func (s *Service) SearchBM25(ctx context.Context, opts BM25Options) ([]BM25Resul
 			reason = "title"
 		}
 
-		// Collect snippet matches using rawContent (no second ReadFile call).
-		matches := collectBM25Matches(dc.rawContent, terms, maxPerFile, opts.CaseSensitive)
-
-		results = append(results, BM25Result{
-			Path:       dc.rel,
-			Score:      score,
-			MatchCount: len(matches),
-			Matches:    matches,
-			TokenCount: response.CountTokens(dc.rawContent),
-			Reason:     reason,
-		})
+		scored = append(scored, bm25Scored{dc: dc, score: score, reason: reason})
 	}
 
-	sort.SliceStable(results, func(i, j int) bool {
-		if results[i].Score != results[j].Score {
-			return results[i].Score > results[j].Score
+	sort.SliceStable(scored, func(i, j int) bool {
+		if scored[i].score != scored[j].score {
+			return scored[i].score > scored[j].score
 		}
-		return results[i].Path < results[j].Path
+		return scored[i].dc.rel < scored[j].dc.rel
 	})
 
-	if len(results) > limit {
-		results = results[:limit]
+	if len(scored) > limit {
+		scored = scored[:limit]
+	}
+
+	// Snippets and token counts are expensive; build them only for survivors
+	// (using rawContent, no second ReadFile call).
+	var results []BM25Result
+	for _, sc := range scored {
+		matches := collectBM25Matches(sc.dc.rawContent, terms, maxPerFile, opts.CaseSensitive)
+		results = append(results, BM25Result{
+			Path:       sc.dc.rel,
+			Score:      sc.score,
+			MatchCount: len(matches),
+			Matches:    matches,
+			TokenCount: countTokens(sc.dc.rawContent),
+			Reason:     sc.reason,
+		})
 	}
 
 	return results, nil

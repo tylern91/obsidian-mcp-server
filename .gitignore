@@ -20,9 +20,9 @@ coverage.html
 *.swp
 *.swo
 
-# Dev-workflow tooling (Serena AI, Claude Code) — not for public consumption
-.serena/
-.claude/*
+# Dev-workflow tooling (Claude Code) — not for public consumption
+.agents/**
+.claude/**
 !.claude/CLAUDE.md
 !.claude/settings.json
 

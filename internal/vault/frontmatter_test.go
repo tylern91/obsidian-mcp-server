@@ -334,3 +334,27 @@ func TestService_UpdateFrontmatter(t *testing.T) {
 		assert.Contains(t, body, "# Simple Note")
 	})
 }
+
+func TestUpdateFrontmatter_CRLF(t *testing.T) {
+	ctx := context.Background()
+	svc := vault.New(t.TempDir(), nil)
+	require.NoError(t, svc.WriteNote(ctx, "a.md", "---\r\ntitle: x\r\n---\r\nbody\r\n", vault.WriteModeOverwrite))
+
+	require.NoError(t, svc.UpdateFrontmatter(ctx, "a.md", map[string]any{"status": "done"}, nil))
+
+	note, err := svc.ReadNote(ctx, "a.md")
+	require.NoError(t, err)
+	assert.Equal(t, "---\r\ntitle: x\r\nstatus: done\r\n---\r\nbody\r\n", note.Content)
+}
+
+func TestSplitFrontmatter_CRLF(t *testing.T) {
+	raw, body, ok := vault.SplitFrontmatter("---\r\ntitle: x\r\n---\r\nbody\r\n")
+	assert.True(t, ok)
+	assert.Equal(t, "title: x\r\n", raw)
+	assert.Equal(t, "body\r\n", body)
+
+	raw, body, ok = vault.SplitFrontmatter("---\ntitle: x\n---\nbody\n")
+	assert.True(t, ok)
+	assert.Equal(t, "title: x\n", raw)
+	assert.Equal(t, "body\n", body)
+}
