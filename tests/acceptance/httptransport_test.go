@@ -209,7 +209,7 @@ func TestHTTPTransport_Acceptance(t *testing.T) {
 		// which mcp-go accepts with 202 Accepted with no further processing)
 		// padded past the cap isolates our own bodyCapMiddleware: uncapped,
 		// mcp-go reads and accepts the whole thing (202); capped, the body
-		// read fails before mcp-go ever sees valid JSON (400).
+		// read fails before mcp-go ever sees valid JSON (413).
 		addr, hc := startHTTPTransport(t, &config.Config{})
 		token := readGeneratedToken(t)
 
@@ -222,7 +222,7 @@ func TestHTTPTransport_Acceptance(t *testing.T) {
 		resp, err := hc.Do(req)
 		require.NoError(t, err)
 		defer func() { _ = resp.Body.Close() }()
-		require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+		require.Equal(t, http.StatusRequestEntityTooLarge, resp.StatusCode)
 	})
 
 	t.Run("[AC-7] negotiates TLS 1.3 and persists the certificate and token across a restart", func(t *testing.T) {
