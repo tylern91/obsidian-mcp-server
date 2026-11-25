@@ -188,4 +188,13 @@ httptransport_test.go	AC-5	2c61dbd	2026-09-24
 httptransport_test.go	AC-6	2c61dbd	2026-09-24
 httptransport_test.go	AC-7	2c61dbd	2026-09-24
 httptransport_test.go	AC-8	2c61dbd	2026-09-24
+hardening_test.go	AC-1	b8e0c6e	2026-11-25
+hardening_test.go	AC-2	b8e0c6e	2026-11-25
+hardening_test.go	AC-3	b8e0c6e	2026-11-25
+hardening_test.go	AC-4	b8e0c6e	2026-11-25
+hardening_test.go	AC-5	b8e0c6e	2026-11-25
+hardening_test.go	AC-6	b8e0c6e	2026-11-25
+hardening_test.go	AC-7	b8e0c6e	2026-11-25
+hardening_test.go	AC-8	b8e0c6e	2026-11-25
+httptransport_test.go	AC-9	b8e0c6e	2026-11-25
 config_test.go	AC-18	f00b0d1	2026-11-25

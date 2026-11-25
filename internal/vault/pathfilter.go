@@ -3,6 +3,8 @@ package vault
 import (
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/text/unicode/norm"
 )
 
 // PathFilter determines whether a vault path should be ignored or is
@@ -24,16 +26,24 @@ const internalStateDir = ".obsidian-mcp"
 // internal state directory. Unlike IsIgnored, this check is unconditional:
 // call sites must apply it regardless of whether a *PathFilter is present.
 func IsInternalState(path string) bool {
-	normalized := filepath.ToSlash(path)
-	first, _, _ := strings.Cut(normalized, "/")
+	first, _, _ := strings.Cut(filepath.ToSlash(path), "/")
 	return strings.EqualFold(first, internalStateDir)
 }
 
 // NewPathFilter creates a PathFilter with the given ignore patterns and
-// allowed extensions. Either slice may be nil or empty.
+// allowed extensions. Either slice may be nil or empty. Ignore patterns are
+// stored NFC-normalized; macOS file systems return NFD names, so IsIgnored
+// normalizes candidate paths the same way.
 func NewPathFilter(ignorePatterns, allowedExts []string) *PathFilter {
+	var normalizedPatterns []string
+	if ignorePatterns != nil {
+		normalizedPatterns = make([]string, len(ignorePatterns))
+		for i, p := range ignorePatterns {
+			normalizedPatterns[i] = norm.NFC.String(p)
+		}
+	}
 	return &PathFilter{
-		ignorePatterns: ignorePatterns,
+		ignorePatterns: normalizedPatterns,
 		allowedExts:    allowedExts,
 	}
 }
@@ -49,7 +59,7 @@ func (f *PathFilter) IsIgnored(path string) bool {
 	}
 
 	// Normalize separators so we can split uniformly.
-	normalized := filepath.ToSlash(path)
+	normalized := norm.NFC.String(filepath.ToSlash(path))
 	components := strings.Split(normalized, "/")
 
 	for _, component := range components {

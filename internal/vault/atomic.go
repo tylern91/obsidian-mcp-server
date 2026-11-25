@@ -49,6 +49,15 @@ func (s *Service) writeFileAtomic(absPath string, data []byte) error {
 	if info, statErr := os.Stat(target); statErr == nil {
 		existingMode, replacing = info.Mode().Perm(), true
 	}
+	if replacing {
+		// Rename needs only directory permission, so without this probe a
+		// read-only note would be replaced where an in-place write fails.
+		f, err := os.OpenFile(target, os.O_WRONLY, 0)
+		if err != nil {
+			return err
+		}
+		_ = f.Close()
+	}
 
 	dir := filepath.Dir(target)
 	base := filepath.Base(target)

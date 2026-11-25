@@ -250,11 +250,31 @@ func TestHTTPTransport_Acceptance(t *testing.T) {
 		}()
 		t.Cleanup(func() {
 			cancel2()
-			<-errCh2
+			if err := <-errCh2; err != nil {
+				t.Errorf("second httptransport.Run returned error after shutdown: %v", err)
+			}
 		})
 		waitForHTTPSListener(t, addr2)
 		token2 := readGeneratedToken(t)
 		require.Equal(t, token1, token2)
+	})
+
+	t.Run("[AC-9] a request body over the MCP library's default cap is rejected with 413", func(t *testing.T) {
+		// 5 MiB is under our own 16 MiB cap (AC-6), so a 413 here can only come
+		// from the mcp-go server's default POST body bound. The body is a valid
+		// JSON-RPC response, which mcp-go accepts with 202 when it is not capped.
+		addr, hc := startHTTPTransport(t, &config.Config{})
+		token := readGeneratedToken(t)
+
+		body := `{"jsonrpc":"2.0","id":1,"result":{},"pad":"` + strings.Repeat("a", 5<<20) + `"}`
+		req, err := http.NewRequest(http.MethodPost, "https://"+addr+"/mcp", strings.NewReader(body))
+		require.NoError(t, err)
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := hc.Do(req)
+		require.NoError(t, err)
+		defer func() { _ = resp.Body.Close() }()
+		require.Equal(t, http.StatusRequestEntityTooLarge, resp.StatusCode)
 	})
 
 	t.Run("[AC-8] shuts down cleanly when its context is canceled", func(t *testing.T) {

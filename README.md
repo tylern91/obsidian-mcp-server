@@ -50,7 +50,7 @@ A Go [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server for 
 | `get_note_outline` | Return a note's heading tree (level, text, line number) without its body | `path` (required), `prettyPrint` |
 | `read_note_lines` | Read a bounded range of lines from a note | `path`, `startLine` (required), `lineCount` (int, default 200, capped at 2000) |
 | `rename_tag` | Rename a tag vault-wide, across frontmatter and inline occurrences | `oldTag`, `newTag` (both required) |
-| `replace_in_note` | Scoped search-and-replace within a single note, literal or regex | `path`, `pattern`, `replacement` (all required), `isRegex` (bool, default false), `maxOccurrences` (int, default 0 = unbounded), `if_match` (optional etag) |
+| `replace_in_note` | Scoped search-and-replace within a single note, literal or regex | `path`, `pattern`, `replacement` (all required), `isRegex` (bool, default false), `maxOccurrences` (int, default 0 = unbounded), `if_match` (optional etag). An empty pattern, or a regex that can match the empty string (`x*`, `^`, `\b`), is rejected with a tool error |
 
 `search_notes`, `search_regex`, `list_directory`, and `get_recent_changes` results also include an
 `obsidian://open` `deepLink` field per note, built from `--vault-name` (see Configuration below).

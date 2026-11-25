@@ -146,3 +146,29 @@ func TestService_ReplaceInNote_IfMatch(t *testing.T) {
 	_, err = svc.ReplaceInNote(ctx, "a.md", "foo", "bar", false, 0, vault.WithIfMatch(note.Etag))
 	require.NoError(t, err)
 }
+
+func TestService_ReplaceInNote_ZeroWidthRegexRejected(t *testing.T) {
+	ctx := context.Background()
+	for _, pattern := range []string{`x*`, `^`, `$`, `\b`, `(?:)`, `(?m)^`, `a?`} {
+		t.Run(pattern, func(t *testing.T) {
+			svc := newLinkTestVault(t)
+			require.NoError(t, svc.WriteNote(ctx, "a.md", "abc\nxyz\n", vault.WriteModeOverwrite))
+
+			_, err := svc.ReplaceInNote(ctx, "a.md", pattern, "X", true, 0)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "empty string")
+
+			note, err := svc.ReadNote(ctx, "a.md")
+			require.NoError(t, err)
+			assert.Equal(t, "abc\nxyz\n", note.Content)
+		})
+	}
+
+	t.Run("literal pattern is unaffected", func(t *testing.T) {
+		svc := newLinkTestVault(t)
+		require.NoError(t, svc.WriteNote(ctx, "a.md", "a*b", vault.WriteModeOverwrite))
+		result, err := svc.ReplaceInNote(ctx, "a.md", "*", "-", false, 0)
+		require.NoError(t, err)
+		assert.Equal(t, 1, result.Replaced)
+	})
+}
