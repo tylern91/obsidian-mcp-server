@@ -19,12 +19,21 @@
 #     stamped on their LAST physical line, never mid-sentence.
 #   - Idempotent: a bullet whose last line already contains "/commit/" is left alone.
 #   - Single-commit release (the common case): every bullet gets that commit's ref.
-#   - Multi-commit release: each bullet's leading backtick token is matched against
-#     commit scopes (`type(scope): ...`). Unique match wins. No match or ambiguous
-#     match falls back to stamping ALL of the release's refs and prints the bullet
-#     to stderr as needing manual review — this script never silently guesses.
+#   - Multi-commit release: each bullet is matched to ONE commit, first hit wins:
+#       1. its leading backtick token equals exactly one commit scope (`type(scope): ...`);
+#       2. the names it cites (backticked spans, GO-/CVE- ids) appear in exactly one
+#          commit's added lines or message (the highest distinct-name count, no tie);
+#       3. its own words (5+ letters) overlap one commit message clearly more than the
+#          others (at least 3 shared words and 2 more than the runner-up).
+#     Tiers 2 and 3 print a MATCH line to stderr so the choice can be audited.
+#     No unique match falls back to stamping ALL of the release's refs and prints the
+#     bullet to stderr as REVIEW.
+#   - A bot author (gh reports "app/<name>" or "<name>[bot]") links to github.com/apps/<name>.
 #
-# Output: rewrites CHANGELOG in place; review-needed bullets go to stderr.
+# Environment for the author lookup: gh needs a token with pull-requests: read; without
+# one the bullet is stamped with the commit and PR only, and a warning goes to stderr.
+#
+# Output: rewrites CHANGELOG in place; MATCH and REVIEW lines go to stderr.
 set -Eeuo pipefail
 
 version="${1:?usage: stamp-changelog-refs.sh <bare-version>}"
@@ -138,10 +147,25 @@ for entry in "${commit_lines[@]}"; do
   author=""
   if [ -n "$pr" ]; then
     author="$(gh pr view "$pr" --repo "$REPO_SLUG" --json author -q .author.login 2>/dev/null || true)"
+    if [ -z "$author" ]; then
+      printf 'stamp-changelog-refs: no author for #%s (gh needs a token with pull-requests: read)\n' "$pr" >&2
+    fi
   fi
 
   ref="([\`${hash}\`](https://github.com/${REPO_SLUG}/commit/${hash}))"
-  [ -n "$author" ] && ref="${ref} by [@${author}](https://github.com/${author})"
+  if [ -n "$author" ]; then
+    # gh reports a GitHub App as "app/<name>" (or "<name>[bot]"); neither is a profile URL.
+    app_name=""
+    case "$author" in
+      app/*) app_name="${author#app/}" ;;
+      *"[bot]") app_name="${author%\[bot\]}" ;;
+    esac
+    if [ -n "$app_name" ]; then
+      ref="${ref} by [@${app_name}](https://github.com/apps/${app_name})"
+    else
+      ref="${ref} by [@${author}](https://github.com/${author})"
+    fi
+  fi
   [ -n "$pr" ] && ref="${ref} in [#${pr}](https://github.com/${REPO_SLUG}/pull/${pr})"
 
   c_hash+=("$hash")
@@ -158,12 +182,67 @@ for r in "${c_ref[@]}"; do
   all_refs_joined="${all_refs_joined:+${all_refs_joined} · }${r}"
 done
 
+# Each commit's added lines and full message, for matching a bullet to the change behind it.
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+if [ "$multi" = true ]; then
+  for i in "${!c_hash[@]}"; do
+    git show --format= -U0 "${c_hash[$i]}" 2>/dev/null | grep '^+' | grep -v '^+++' > "$work/$i.diff" || true
+    git show -s --format=%B "${c_hash[$i]}" > "$work/$i.msg" 2>/dev/null || true
+  done
+fi
+
+# Names a bullet cites: backticked spans of 3 to 60 characters and advisory ids (GO-/CVE-).
+bullet_tokens() {
+  local rest="$1" tok
+  local re_bt='`([^`]+)`' re_adv='(GO|CVE)-[0-9]{4}-[0-9]+'
+  while [[ "$rest" =~ $re_bt ]]; do
+    tok="${BASH_REMATCH[1]}"
+    rest="${rest#*"${BASH_REMATCH[0]}"}"
+    if [ "${#tok}" -ge 3 ] && [ "${#tok}" -le 60 ]; then
+      printf '%s\n' "$tok"
+    fi
+  done
+  rest="$1"
+  while [[ "$rest" =~ $re_adv ]]; do
+    tok="${BASH_REMATCH[0]}"
+    rest="${rest#*"${BASH_REMATCH[0]}"}"
+    printf '%s\n' "$tok"
+  done
+}
+
+# Distinct lowercase words of 5+ letters, minus filler, for the commit-message overlap tier.
+bullet_words() {
+  printf '%s' "$1" | sed 's/`[^`]*`//g' | tr -cs 'a-zA-Z' '\n' | tr '[:upper:]' '[:lower:]' |
+    awk 'length($0) >= 5 && !seen[$0]++ && $0 !~ /^(which|their|there|these|those|would|could|should|before|after|about|other|every|still|where|while|being|using|being|without|instead|because)$/'
+}
+
+# pick_winner MIN MARGIN SCORE... — index of the single highest score, only when it is at
+# least MIN and beats the runner-up by MARGIN; prints nothing otherwise.
+pick_winner() {
+  local min="$1" margin="$2" best=-1 best_s=-1 second_s=-1 idx=0 s
+  shift 2
+  for s in "$@"; do
+    if [ "$s" -gt "$best_s" ]; then
+      second_s="$best_s"; best_s="$s"; best="$idx"
+    elif [ "$s" -gt "$second_s" ]; then
+      second_s="$s"
+    fi
+    idx=$((idx + 1))
+  done
+  if [ "$best_s" -ge "$min" ] && [ $((best_s - second_s)) -ge "$margin" ]; then
+    printf '%s' "$best"
+  fi
+}
+
 resolve_ref() {
-  local first_line="$1"
+  local first_line="$1" text="$2"
   if [ "$multi" = false ]; then
     printf '%s' "${c_ref[0]}"
     return
   fi
+
+  # Tier 1: the bullet's leading backtick token equals exactly one commit scope.
   local token=""
   local re_token='`([a-zA-Z0-9_./-]+)`'
   if [[ "$first_line" =~ $re_token ]]; then
@@ -180,10 +259,58 @@ resolve_ref() {
   fi
   if [ "$match_count" -eq 1 ]; then
     printf '%s' "${c_ref[$match_idx]}"
-  else
-    printf 'REVIEW: %s: %s\n' "$tag" "${first_line:0:80}" >&2
-    printf '%s' "$all_refs_joined"
+    return
   fi
+
+  # Tier 2: the names the bullet cites show up in exactly one commit's diff or message.
+  local toks=() t s idx scores=() win
+  while IFS= read -r t; do
+    [ -n "$t" ] && toks+=("$t")
+  done < <(bullet_tokens "$text")
+  if [ "${#toks[@]}" -gt 0 ]; then
+    for i in "${!c_hash[@]}"; do
+      s=0
+      for t in "${toks[@]}"; do
+        if grep -q -F -- "$t" "$work/$i.diff" "$work/$i.msg" 2>/dev/null; then
+          s=$((s + 1))
+        fi
+      done
+      scores+=("$s")
+    done
+    win="$(pick_winner 1 1 "${scores[@]}")"
+    if [ -n "$win" ]; then
+      printf 'MATCH: %s: %s <- %s (cited names): %s\n' "$tag" "${c_hash[$win]}" "${scores[$win]}" "${first_line:0:60}" >&2
+      printf '%s' "${c_ref[$win]}"
+      return
+    fi
+  fi
+
+  # Tier 3: the bullet's own words overlap one commit message clearly more than the others.
+  local words=() w
+  scores=()
+  while IFS= read -r w; do
+    [ -n "$w" ] && words+=("$w")
+  done < <(bullet_words "$text")
+  if [ "${#words[@]}" -gt 0 ]; then
+    for i in "${!c_hash[@]}"; do
+      s=0
+      for w in "${words[@]}"; do
+        if grep -q -i -w -- "$w" "$work/$i.msg" 2>/dev/null; then
+          s=$((s + 1))
+        fi
+      done
+      scores+=("$s")
+    done
+    win="$(pick_winner 3 2 "${scores[@]}")"
+    if [ -n "$win" ]; then
+      printf 'MATCH: %s: %s <- %s (message words): %s\n' "$tag" "${c_hash[$win]}" "${scores[$win]}" "${first_line:0:60}" >&2
+      printf '%s' "${c_ref[$win]}"
+      return
+    fi
+  fi
+
+  printf 'REVIEW: %s: %s\n' "$tag" "${first_line:0:80}" >&2
+  printf '%s' "$all_refs_joined"
 }
 
 # --- Locate the version's section in CHANGELOG -------------------------------
@@ -223,7 +350,7 @@ while (( i < n )); do
     if [[ "${bullet[$last_idx]}" == *"/commit/"* ]]; then
       out+=("${bullet[@]}")
     else
-      ref="$(resolve_ref "${bullet[0]}")"
+      ref="$(resolve_ref "${bullet[0]}" "${bullet[*]}")"
       bullet[$last_idx]="${bullet[$last_idx]} ${ref}"
       out+=("${bullet[@]}")
     fi
