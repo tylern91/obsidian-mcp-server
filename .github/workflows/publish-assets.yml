@@ -225,6 +225,8 @@ jobs:
           private-key: ${{ secrets.HOMEBREW_APP_PRIVATE_KEY }}
           owner: tylern91
           repositories: homebrew-obsidian-mcp
+          # Tap clone (read) and formula push (write) both use contents.
+          permission-contents: write
 
       - name: Sync formula
         env:
