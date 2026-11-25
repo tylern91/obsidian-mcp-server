@@ -159,15 +159,33 @@ func TestReadOnlyGuard_PassesThroughWhenNotReadOnly(t *testing.T) {
 	}
 }
 
+// TestEveryToolDeclaresAnnotations guards the contract that MCP hosts rely on
+// to decide which calls need approval: every tool must state both
+// readOnlyHint and destructiveHint explicitly.
+func TestEveryToolDeclaresAnnotations(t *testing.T) {
+	deps := registrationTestDeps(t)
+
+	for _, spec := range allSpecs(deps) {
+		ann := spec.Tool.Annotations
+		if ann.ReadOnlyHint == nil {
+			t.Errorf("%s: ReadOnlyHint must be set explicitly", spec.Tool.Name)
+		}
+		if ann.DestructiveHint == nil {
+			t.Errorf("%s: DestructiveHint must be set explicitly", spec.Tool.Name)
+		}
+		if ann.ReadOnlyHint != nil && ann.DestructiveHint != nil && *ann.ReadOnlyHint && *ann.DestructiveHint {
+			t.Errorf("%s: a read-only tool cannot be destructive", spec.Tool.Name)
+		}
+	}
+}
+
 func TestNewToolSpecDerivesMutatingFromReadOnlyHint(t *testing.T) {
 	deps := registrationTestDeps(t)
 
 	for _, spec := range allSpecs(deps) {
 		hint := spec.Tool.Annotations.ReadOnlyHint
 		if hint == nil {
-			if !spec.Mutating {
-				t.Errorf("%s: nil ReadOnlyHint should default to Mutating=true", spec.Tool.Name)
-			}
+			t.Errorf("%s: ReadOnlyHint is nil", spec.Tool.Name)
 			continue
 		}
 		wantMutating := !*hint
