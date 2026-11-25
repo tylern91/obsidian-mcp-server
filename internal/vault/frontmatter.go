@@ -3,7 +3,6 @@ package vault
 import (
 	"context"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 
@@ -227,7 +226,7 @@ func (s *Service) UpdateFrontmatter(ctx context.Context, path string, updates ma
 
 	assembled := assembleFrontmatter(string(out), body, hasFM && hasCRLFFrontmatter(content))
 
-	if writeErr := os.WriteFile(absPath, []byte(assembled), 0644); writeErr != nil {
+	if writeErr := s.writeFileAtomic(absPath, []byte(assembled)); writeErr != nil {
 		return &PathError{Op: "update_frontmatter", Path: path, Err: writeErr}
 	}
 

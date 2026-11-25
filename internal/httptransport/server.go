@@ -53,6 +53,7 @@ func Run(ctx context.Context, mcpServer *mcpserver.MCPServer, cfg *config.Config
 	} else {
 		logger.Info("bearer token loaded from environment", "sha8", token.sha8)
 	}
+	warnWeakToken(logger, token)
 
 	cert, err := loadOrCreateCert(dir)
 	if err != nil {
@@ -74,6 +75,7 @@ func Run(ctx context.Context, mcpServer *mcpserver.MCPServer, cfg *config.Config
 	}
 
 	store := newSessionStore(defaultSessionTTL)
+	store.maxLifetime = cfg.SessionMaxLifetime
 	sweepCtx, stopSweep := context.WithCancel(ctx)
 	defer stopSweep()
 	go runSessionSweep(sweepCtx, store)

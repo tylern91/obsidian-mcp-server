@@ -96,7 +96,7 @@ func (s *Service) renameTagLocked(rel, abs, oldTag, newTag string) (*TagRename, 
 	if int64(len(newContent)) > maxFileSizeBytes {
 		return nil, &PathError{Op: "rename_tag", Path: rel, Err: ErrFileTooLarge}
 	}
-	if err := os.WriteFile(abs, []byte(newContent), 0644); err != nil {
+	if err := s.writeFileAtomic(abs, []byte(newContent)); err != nil {
 		return nil, &PathError{Op: "rename_tag", Path: rel, Err: err}
 	}
 	return &TagRename{Path: rel, FrontmatterHit: fmHit, InlineCount: inlineCount}, nil

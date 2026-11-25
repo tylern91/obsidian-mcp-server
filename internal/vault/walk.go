@@ -41,6 +41,9 @@ func (s *Service) WalkNotes(ctx context.Context, fn func(rel, abs string) error)
 			return nil
 		}
 
+		if isAtomicTemp(d.Name()) {
+			return nil
+		}
 		if IsInternalState(rel) {
 			return nil
 		}

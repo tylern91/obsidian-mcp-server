@@ -161,3 +161,73 @@ func TestSessionResolver_MissingCredentialHashBindsToEmpty(t *testing.T) {
 		t.Errorf("resolved manager credentialHash = %q, want empty", mgr.credentialHash)
 	}
 }
+
+// fakeClock is an injectable clock so lifetime tests never sleep.
+type fakeClock struct{ now time.Time }
+
+func (c *fakeClock) Now() time.Time          { return c.now }
+func (c *fakeClock) Advance(d time.Duration) { c.now = c.now.Add(d) }
+
+func newClockedStore(ttl, maxLifetime time.Duration) (*sessionStore, *fakeClock) {
+	clock := &fakeClock{now: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	store := newSessionStore(ttl)
+	store.now = clock.Now
+	store.maxLifetime = maxLifetime
+	return store, clock
+}
+
+func TestSessionStore_MaxLifetimeExpiresActiveSession(t *testing.T) {
+	store, clock := newClockedStore(10*time.Minute, time.Hour)
+	mgr := &boundSessionIdManager{store: store, credentialHash: "cred-a"}
+	id := mgr.Generate()
+
+	// Activity every 5 minutes keeps the sliding TTL alive well past the cap.
+	for i := 0; i < 11; i++ {
+		clock.Advance(5 * time.Minute)
+		if terminated, err := mgr.Validate(id); err != nil || terminated {
+			t.Fatalf("Validate at %dm = (%v, %v), want (false, nil)", (i+1)*5, terminated, err)
+		}
+	}
+
+	clock.Advance(6 * time.Minute) // 61 minutes since creation
+	if terminated, err := mgr.Validate(id); err != nil || !terminated {
+		t.Errorf("Validate past max lifetime = (%v, %v), want (true, nil)", terminated, err)
+	}
+	if _, err := mgr.Validate(id); err == nil {
+		t.Error("expired session must be removed: second Validate should report an unknown id")
+	}
+}
+
+func TestSessionStore_MaxLifetimeZeroDisablesCap(t *testing.T) {
+	store, clock := newClockedStore(10*time.Minute, 0)
+	mgr := &boundSessionIdManager{store: store, credentialHash: "cred-a"}
+	id := mgr.Generate()
+
+	for i := 0; i < 100; i++ {
+		clock.Advance(5 * time.Minute)
+		if terminated, err := mgr.Validate(id); err != nil || terminated {
+			t.Fatalf("Validate at iteration %d = (%v, %v), want (false, nil) with the cap disabled", i, terminated, err)
+		}
+	}
+}
+
+func TestSessionStore_SweepRemovesSessionsPastMaxLifetime(t *testing.T) {
+	store, clock := newClockedStore(10*time.Minute, time.Hour)
+	mgr := &boundSessionIdManager{store: store, credentialHash: "cred-a"}
+	id := mgr.Generate()
+
+	for i := 0; i < 11; i++ {
+		clock.Advance(5 * time.Minute)
+		if _, err := mgr.Validate(id); err != nil {
+			t.Fatalf("Validate: %v", err)
+		}
+	}
+	clock.Advance(6 * time.Minute)
+	store.sweep(clock.Now())
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if len(store.sessions) != 0 {
+		t.Errorf("sweep left %d sessions, want 0 past the max lifetime", len(store.sessions))
+	}
+}

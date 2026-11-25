@@ -41,6 +41,8 @@ type flakyStatsVault struct {
 
 func (f *flakyStatsVault) Root() string { return f.root }
 
+func (f *flakyStatsVault) Generation() uint64 { return 0 }
+
 func (f *flakyStatsVault) VaultStats(ctx context.Context, _ vault.VaultStatsOpts) (*vault.VaultStats, error) {
 	f.calls++
 	if f.calls == 1 {
@@ -71,4 +73,63 @@ func TestVaultStats_ErrorIsNotCached(t *testing.T) {
 	if text := second[0].(mcp.TextResourceContents).Text; strings.Contains(text, "error") {
 		t.Errorf("second read served cached error: %s", text)
 	}
+}
+
+// Writes, moves and deletes of a nested note change no mtime on the vault
+// root, so the cached stats and tags must be invalidated by the service itself.
+func TestVaultResources_NestedNoteMutationsInvalidateCache(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	filter := vault.NewPathFilter([]string{".obsidian", ".trash"}, []string{".md"})
+	svc := vault.New(root, filter)
+	deps := resources.Deps{Vault: svc}
+	stats := resources.VaultStatsHandler(deps)
+	tags := resources.VaultTagsHandler(deps)
+
+	read := func(h func(context.Context, mcp.ReadResourceRequest) ([]mcp.ResourceContents, error)) string {
+		t.Helper()
+		got, err := h(ctx, mcp.ReadResourceRequest{})
+		if err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		return got[0].(mcp.TextResourceContents).Text
+	}
+	mustChange := func(step string, h func(context.Context, mcp.ReadResourceRequest) ([]mcp.ResourceContents, error), mutate func()) {
+		t.Helper()
+		before := read(h)
+		mutate()
+		if after := read(h); after == before {
+			t.Errorf("%s: cached resource was not invalidated: %s", step, after)
+		}
+	}
+
+	if err := svc.WriteNote(ctx, "folder/sub/note.md", "# one\n", vault.WriteModeOverwrite); err != nil {
+		t.Fatal(err)
+	}
+	read(stats)
+	read(tags)
+
+	mustChange("edit stats", stats, func() {
+		if err := svc.WriteNote(ctx, "folder/sub/note.md", "# one\n\nmore body text\n", vault.WriteModeOverwrite); err != nil {
+			t.Fatal(err)
+		}
+	})
+	mustChange("edit tags", tags, func() {
+		if err := svc.WriteNote(ctx, "folder/sub/note.md", "# one\n\n#nested-tag\n", vault.WriteModeOverwrite); err != nil {
+			t.Fatal(err)
+		}
+	})
+	mustChange("move tags", tags, func() {
+		if _, err := svc.MoveNote(ctx, "folder/sub/note.md", "other/note.md", "folder/sub/note.md", false, false); err != nil {
+			t.Fatal(err)
+		}
+		if err := svc.WriteNote(ctx, "other/second.md", "#second-tag\n", vault.WriteModeOverwrite); err != nil {
+			t.Fatal(err)
+		}
+	})
+	mustChange("delete stats", stats, func() {
+		if err := svc.DeleteNote(ctx, "other/second.md", "other/second.md", true); err != nil {
+			t.Fatal(err)
+		}
+	})
 }

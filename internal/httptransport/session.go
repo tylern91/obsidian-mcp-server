@@ -37,6 +37,7 @@ func credentialHashFromContext(ctx context.Context) (string, bool) {
 
 type sessionRecord struct {
 	credentialHash string
+	createdAt      time.Time
 	expiresAt      time.Time
 }
 
@@ -48,10 +49,24 @@ type sessionStore struct {
 	mu       sync.Mutex
 	sessions map[string]sessionRecord
 	ttl      time.Duration
+	// maxLifetime is an absolute cap on a session's age that sliding
+	// activity cannot extend; 0 disables it.
+	maxLifetime time.Duration
+	// now is injectable so lifetime tests never sleep.
+	now func() time.Time
 }
 
 func newSessionStore(ttl time.Duration) *sessionStore {
-	return &sessionStore{sessions: make(map[string]sessionRecord), ttl: ttl}
+	return &sessionStore{sessions: make(map[string]sessionRecord), ttl: ttl, now: time.Now}
+}
+
+// expired reports whether rec is past its sliding TTL or its absolute
+// lifetime cap at now.
+func (s *sessionStore) expired(rec sessionRecord, now time.Time) bool {
+	if now.After(rec.expiresAt) {
+		return true
+	}
+	return s.maxLifetime > 0 && now.Sub(rec.createdAt) > s.maxLifetime
 }
 
 // sweep removes expired sessions. Call periodically from a background
@@ -60,7 +75,7 @@ func (s *sessionStore) sweep(now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for id, rec := range s.sessions {
-		if now.After(rec.expiresAt) {
+		if s.expired(rec, now) {
 			delete(s.sessions, id)
 		}
 	}
@@ -86,9 +101,11 @@ func (m *boundSessionIdManager) Generate() string {
 
 	m.store.mu.Lock()
 	defer m.store.mu.Unlock()
+	now := m.store.now()
 	m.store.sessions[id] = sessionRecord{
 		credentialHash: m.credentialHash,
-		expiresAt:      time.Now().Add(m.store.ttl),
+		createdAt:      now,
+		expiresAt:      now.Add(m.store.ttl),
 	}
 	return id
 }
@@ -104,12 +121,13 @@ func (m *boundSessionIdManager) Validate(sessionID string) (isTerminated bool, e
 	if rec.credentialHash != m.credentialHash {
 		return false, errCredentialMismatch
 	}
-	if time.Now().After(rec.expiresAt) {
+	now := m.store.now()
+	if m.store.expired(rec, now) {
 		delete(m.store.sessions, sessionID)
 		return true, nil
 	}
-	// Sliding expiry: activity keeps the session alive.
-	rec.expiresAt = time.Now().Add(m.store.ttl)
+	// Sliding expiry: activity keeps the session alive until maxLifetime.
+	rec.expiresAt = now.Add(m.store.ttl)
 	m.store.sessions[sessionID] = rec
 	return false, nil
 }

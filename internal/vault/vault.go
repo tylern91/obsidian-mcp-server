@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -47,6 +48,15 @@ type Service struct {
 	root   string // symlink-resolved absolute path to vault root
 	filter *PathFilter
 	mu     sync.Mutex // protects concurrent file writes
+	// gen counts committed note mutations. Directory mtimes miss in-place and
+	// nested edits, so caches of vault-wide results key on this instead.
+	gen atomic.Uint64
+}
+
+// Generation returns a counter that increases after every note write, move or
+// delete this Service completes.
+func (s *Service) Generation() uint64 {
+	return s.gen.Load()
 }
 
 // New creates a new vault Service.
@@ -451,7 +461,7 @@ func (s *Service) WriteNote(ctx context.Context, path, content string, mode Writ
 		if err := os.MkdirAll(parentDir, 0755); err != nil {
 			return &PathError{Op: "write", Path: path, Err: err}
 		}
-		if err := os.WriteFile(absPath, []byte(content), 0644); err != nil {
+		if err := s.writeFileAtomic(absPath, []byte(content)); err != nil {
 			return &PathError{Op: "write", Path: path, Err: err}
 		}
 
@@ -478,7 +488,7 @@ func (s *Service) WriteNote(ctx context.Context, path, content string, mode Writ
 			return &PathError{Op: "write", Path: path, Err: ErrFileTooLarge}
 		}
 
-		if err := os.WriteFile(absPath, []byte(combined), 0644); err != nil {
+		if err := s.writeFileAtomic(absPath, []byte(combined)); err != nil {
 			return &PathError{Op: "write", Path: path, Err: err}
 		}
 
@@ -561,6 +571,9 @@ func (s *Service) ListDirectory(ctx context.Context, path string) ([]DirEntry, e
 		}
 
 		name := entry.Name()
+		if isAtomicTemp(name) {
+			continue
+		}
 
 		var relPath string
 		if path == "" {
