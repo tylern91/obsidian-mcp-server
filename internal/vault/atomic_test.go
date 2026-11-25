@@ -186,3 +186,25 @@ func TestAtomicWrite_TempFileNeverListed(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestAtomicWrite_ReadOnlyNoteIsNotReplaced(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("a read-only file does not block writes for root")
+	}
+	root := t.TempDir()
+	note := filepath.Join(root, "ro.md")
+	if err := os.WriteFile(note, []byte("keep"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	svc := newService(root)
+
+	err := svc.WriteNote(context.Background(), "ro.md", "changed", vault.WriteModeOverwrite)
+	if err == nil {
+		t.Fatal("WriteNote replaced a read-only note, want a permission error")
+	}
+	got, _ := os.ReadFile(note)
+	if string(got) != "keep" {
+		t.Errorf("read-only note content = %q, want it unchanged", got)
+	}
+	noTempFiles(t, root)
+}
