@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-26
+
+### Security
+
+- Update `mark3labs/mcp-go` to v1.6.0, which includes the transport fix for GO-2026-6911 (the default
+  HTTP clients now refuse cross-origin redirects) and rejects duplicate in-flight JSON-RPC request
+  IDs.
+
+### Changed
+
+- Bump the indirect modules `regexp2`, `jsonschema-go`, `santhosh-tekuri/jsonschema`, and
+  `spf13/cast`, and CI's golangci-lint (v2.15.0) and Trivy (v0.76.2).
+
+### Fixed
+
+- Release notes keep their per-bullet commit, author, and PR links. The post-publish step that
+  re-renders the notes passed a `v`-prefixed version to the stamping script, which failed and was
+  ignored, so the notes of v0.3.2 through v0.4.0 lost their links. The step now fails on a stamp
+  error, a check fails the publish when the body has no commit link, and the `go` workflow rejects a
+  workflow that calls the script with a prefixed version. The published notes of those four releases
+  were regenerated with their links.
+
 ## [0.4.0] - 2026-11-26
 
 Ideas from a review of the recent issues and PRs in two upstream Obsidian MCP servers
