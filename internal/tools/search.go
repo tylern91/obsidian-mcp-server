@@ -97,7 +97,7 @@ func searchNotesHandler(deps Deps) server.ToolHandlerFunc {
 
 func searchRegexSpec(deps Deps) toolSpec {
 	tool := mcp.NewTool("search_regex",
-		mcp.WithDescription("Search vault notes using a regex or glob pattern."),
+		mcp.WithDescription("Search vault notes using a regex or glob pattern. The response reports matchCount and truncated; when truncated is true, matchCount is a lower bound (at least limit+1) because the search stops at the first match beyond the limit."),
 		mcp.WithString("pattern",
 			mcp.Required(),
 			mcp.Description("RE2 regular expression or filepath glob pattern to search for."),
@@ -162,8 +162,9 @@ func searchRegexHandler(deps Deps) server.ToolHandlerFunc {
 			Scope   string                `json:"scope"`
 			Results []regexResultWithLink `json:"results"`
 			Total   int                   `json:"total"`
-			// MatchCount is the number of matching files before the limit was
-			// applied; Truncated is true when results were cut.
+			// MatchCount is the number of matching files found; when Truncated
+			// it is a lower bound (limit+1) because the walk stops at the first
+			// match beyond the limit.
 			MatchCount int  `json:"matchCount"`
 			Truncated  bool `json:"truncated"`
 		}

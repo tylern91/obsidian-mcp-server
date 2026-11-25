@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -110,10 +111,12 @@ func (s *Service) SearchRegex(ctx context.Context, opts RegexOptions) ([]RegexRe
 	return results, err
 }
 
-// SearchRegexTotal is SearchRegex plus the number of matching files in the
-// whole vault. After the limit is reached the walk continues in count-only
-// mode (one match per file, nothing retained), so total > len(results) means
-// the results were truncated.
+// SearchRegexTotal is SearchRegex plus a matching-file count. When the results
+// fit within the limit, total == len(results) and is exact. Once the limit is
+// reached the walk stops at the first further matching file, so a truncated
+// search reports total == limit+1 and total is only a lower bound on the
+// number of matching files (total > len(results) means truncated). This keeps
+// truncated searches from reading every remaining file.
 func (s *Service) SearchRegexTotal(ctx context.Context, opts RegexOptions) ([]RegexResult, int, error) {
 	limit := opts.Limit
 	if limit <= 0 {
@@ -144,6 +147,8 @@ func (s *Service) SearchRegexTotal(ctx context.Context, opts RegexOptions) ([]Re
 	total := 0
 
 	walkErr := s.vault.WalkNotes(ctx, func(rel, abs string) error {
+		// Past the limit, one further match is enough to know the results are
+		// truncated: scan for a single hit and stop the walk.
 		counting := len(results) >= limit
 
 		scanMax := maxPerFile
@@ -180,9 +185,10 @@ func (s *Service) SearchRegexTotal(ctx context.Context, opts RegexOptions) ([]Re
 
 		if result != nil {
 			total++
-			if !counting {
-				results = append(results, *result)
+			if counting {
+				return filepath.SkipAll
 			}
+			results = append(results, *result)
 		}
 		return nil
 	})

@@ -3,6 +3,7 @@ package vault
 import (
 	"errors"
 	"fmt"
+	pathpkg "path"
 	"path/filepath"
 	"strings"
 
@@ -107,7 +108,11 @@ func (f *PathFilter) IsIgnored(path string) bool {
 		return false
 	}
 
-	normalized := norm.NFC.String(filepath.ToSlash(path))
+	// Lexically clean first so no caller can bypass a root-anchored entry with
+	// an unclean path such as "Other/../Journal/Private/x.md". Backslashes are
+	// treated as separators too: over-matching is the safe direction here.
+	slashed := strings.ReplaceAll(filepath.ToSlash(path), `\`, "/")
+	normalized := norm.NFC.String(pathpkg.Clean(slashed))
 	var components []string
 	for _, c := range strings.Split(normalized, "/") {
 		if c != "" && c != "." {

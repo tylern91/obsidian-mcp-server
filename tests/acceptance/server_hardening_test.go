@@ -180,3 +180,49 @@ func TestServerHardening_Acceptance(t *testing.T) {
 		assert.False(t, callTool(t, c2, "search_regex", map[string]any{"pattern": "learning"}).IsError)
 	})
 }
+
+func TestPathBypass_Acceptance(t *testing.T) {
+	t.Run("[AC-9] unclean paths cannot bypass a root-anchored ignore entry on read, write, list, patch, delete or move", func(t *testing.T) {
+		dir := t.TempDir()
+		writeVaultFile(t, dir, "Journal/Private/x.md", "# H\nsecret\n")
+		writeVaultFile(t, dir, "Other/ok.md", "# H\nok\n")
+		vs := vault.New(dir, vault.NewPathFilter([]string{"Journal/Private"}, []string{".md"}))
+		ctx := t.Context()
+
+		for _, p := range []string{
+			"Other/../Journal/Private/x.md",
+			"./Journal/Private/x.md",
+			"Journal//Private/x.md",
+			"Other/..//Journal/Private/x.md",
+			".\\Journal\\Private\\x.md",
+			"Other\\..\\Journal\\Private\\x.md",
+		} {
+			_, err := vs.ReadNote(ctx, p)
+			assert.ErrorIs(t, err, vault.ErrPathRestricted, "read %q", p)
+			err = vs.WriteNote(ctx, p, "pwned", vault.WriteModeOverwrite)
+			assert.ErrorIs(t, err, vault.ErrPathRestricted, "write %q", p)
+			err = vs.PatchNote(ctx, p, vault.PatchOp{Heading: "H", Position: "after", Content: "x"})
+			assert.ErrorIs(t, err, vault.ErrPathRestricted, "patch %q", p)
+			err = vs.DeleteNote(ctx, p, p, false)
+			assert.ErrorIs(t, err, vault.ErrPathRestricted, "delete %q", p)
+			_, err = vs.MoveNote(ctx, p, "Other/moved.md", p, false, false)
+			assert.ErrorIs(t, err, vault.ErrPathRestricted, "move src %q", p)
+			_, err = vs.MoveNote(ctx, "Other/ok.md", p, "Other/ok.md", false, false)
+			assert.ErrorIs(t, err, vault.ErrPathRestricted, "move dst %q", p)
+		}
+		_, err := vs.ListDirectory(ctx, "Other/../Journal/Private")
+		assert.ErrorIs(t, err, vault.ErrPathRestricted, "list")
+		_, err = vs.ListDirectory(ctx, "./Journal//Private")
+		assert.ErrorIs(t, err, vault.ErrPathRestricted, "list dotted")
+
+		got, err := os.ReadFile(filepath.Join(dir, "Journal/Private/x.md"))
+		require.NoError(t, err)
+		assert.Equal(t, "# H\nsecret\n", string(got))
+		assert.FileExists(t, filepath.Join(dir, "Other/ok.md"))
+
+		// The filter itself cleans its input, whatever the caller passes.
+		f := vault.NewPathFilter([]string{"Journal/Private"}, nil)
+		assert.True(t, f.IsIgnored("Other/../Journal/Private/x.md"))
+		assert.False(t, f.IsIgnored("Journal/Other/../PrivateStuff/y.md"))
+	})
+}

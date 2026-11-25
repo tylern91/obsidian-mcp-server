@@ -35,20 +35,27 @@ func TestSearchBM25Total_CountsBeforeLimit(t *testing.T) {
 	require.Equal(t, len(res), total)
 }
 
-func TestSearchRegexTotal_CountsBeforeLimit(t *testing.T) {
+func TestSearchRegexTotal_StopsOneBeyondLimit(t *testing.T) {
 	svc := totalFixture(t, 30)
 	res, total, err := svc.SearchRegexTotal(context.Background(), search.RegexOptions{Pattern: "common", Limit: 5})
 	require.NoError(t, err)
 	require.Len(t, res, 5)
-	require.Equal(t, 30, total)
+	// The walk stops at the first match beyond the limit: a lower bound.
+	require.Equal(t, 6, total)
 
 	res, total, err = svc.SearchRegexTotal(context.Background(), search.RegexOptions{Pattern: "common", Limit: 100})
 	require.NoError(t, err)
 	require.Equal(t, len(res), total)
 
-	// MaxResults caps the effective limit but not the reported total.
+	// An exact fit is not truncated.
+	res, total, err = svc.SearchRegexTotal(context.Background(), search.RegexOptions{Pattern: "common", Limit: 30})
+	require.NoError(t, err)
+	require.Len(t, res, 30)
+	require.Equal(t, 30, total)
+
+	// MaxResults caps the effective limit; total is limit+1 when truncated.
 	res, total, err = svc.SearchRegexTotal(context.Background(), search.RegexOptions{Pattern: "common", Limit: 100, MaxResults: 3})
 	require.NoError(t, err)
 	require.Len(t, res, 3)
-	require.Equal(t, 30, total)
+	require.Equal(t, 4, total)
 }
