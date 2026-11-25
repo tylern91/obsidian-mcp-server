@@ -43,6 +43,10 @@ jobs:
       ) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      # The stamp script reads PR authors with gh.
+      pull-requests: read
     outputs:
       created: ${{ steps.mark.outputs.created }}
       version: ${{ steps.ver.outputs.next }}
@@ -129,6 +133,7 @@ jobs:
 
       - name: Stamp CHANGELOG refs
         env:
+          GH_TOKEN: ${{ github.token }}
           STAMP_HEAD_REF: HEAD
           NEXT: ${{ steps.ver.outputs.next }}
         run: |
