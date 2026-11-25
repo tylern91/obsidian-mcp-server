@@ -59,8 +59,9 @@ type moveCtx struct {
 	targets         map[string]bool
 	index           map[string][]string
 	newPath         string
-	oldExt          string // extension of the moved note, e.g. ".md"
-	newStemCollides bool   // another note already uses the new basename
+	oldExt          string        // extension of the moved note, e.g. ".md"
+	newStemCollides bool          // another note already uses the new basename
+	anchor          *anchorChange // non-nil: rewrite heading anchors instead of targets
 }
 
 // rewriteTarget computes the new link target string for oldTarget (as
@@ -162,12 +163,19 @@ func (s *Service) RewriteLinksOnMove(ctx context.Context, oldPath, newPath strin
 			mv.newStemCollides = true
 		}
 	}
+	// the moved note itself was already renamed on disk
+	return s.rewriteLinksVaultWide(ctx, mv, newSlash, dryRun)
+}
 
+// rewriteLinksVaultWide walks every note except skipRel, applying mv's link
+// rewrite to each. It is the shared engine behind RewriteLinksOnMove (target
+// rewrite) and RenameHeading (anchor rewrite, mv.anchor set).
+func (s *Service) rewriteLinksVaultWide(ctx context.Context, mv *moveCtx, skipRel string, dryRun bool) ([]LinkRewrite, error) {
 	var rewrites []LinkRewrite
 
 	walkErr := s.WalkNotes(ctx, func(rel, abs string) error {
-		if rel == newSlash {
-			return nil // the moved note itself was already renamed on disk
+		if rel == skipRel {
+			return nil
 		}
 
 		data, err := os.ReadFile(abs)
@@ -259,6 +267,9 @@ func (s *Service) rewriteNoteLocked(rel, abs string, mv *moveCtx) ([]LinkRewrite
 // Matches are processed right-to-left by byte offset so earlier replacements
 // don't invalidate later ones' indices.
 func rewriteLine(line string, mv *moveCtx) (string, []LinkRewrite) {
+	if mv.anchor != nil {
+		return rewriteAnchorLine(line, mv)
+	}
 	type match struct {
 		start, end int
 		rewrite    LinkRewrite

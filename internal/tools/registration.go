@@ -41,6 +41,8 @@ type VaultService interface {
 	VaultStats(ctx context.Context, opts vault.VaultStatsOpts) (*vault.VaultStats, error)
 	Root() string
 
+	RenameHeading(ctx context.Context, path, heading, newHeading string, line int, updateLinks bool, opts ...vault.WriteOpt) (*vault.RenameHeadingResult, error)
+
 	GetNoteOutline(ctx context.Context, path string) ([]vault.HeadingInfo, error)
 	ReadNoteLines(ctx context.Context, path string, startLine, lineCount int) (*vault.NoteLines, error)
 }
@@ -110,6 +112,7 @@ func allSpecs(deps Deps) []toolSpec {
 		listAllTagsSpec(deps),
 		getBacklinksSpec(deps),
 		patchNoteSpec(deps),
+		renameHeadingSpec(deps),
 		deleteNoteSpec(deps),
 		moveNoteSpec(deps),
 		searchNotesSpec(deps),
