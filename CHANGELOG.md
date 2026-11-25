@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-11-25
+
+### Security
+
+- A persisted self-signed TLS certificate that has expired, or expires within 30 days, is now
+  regenerated at startup. It was reused forever, so a long-lived install eventually served an
+  expired certificate. The auth token is untouched. A client that pinned the old certificate must
+  trust the new one.
+- A bearer token shorter than 32 characters now logs a startup warning with its length, never its
+  value. Short tokens are still accepted.
+- `--session-max-lifetime` (`OBSIDIAN_SESSION_MAX_LIFETIME`) sets an optional absolute cap on
+  session age, so a stolen session ID cannot be kept alive by activity alone. It is off by default.
+- GitHub Actions in every workflow are pinned to full commit SHAs, and the release workflow's App
+  tokens request only the `contents` permission.
+
+### Fixed
+
+- Note writes are atomic: a same-directory temp file is synced and renamed onto the target, so a
+  crash leaves the old or the new content and never a truncated note. Symlinked notes keep their
+  link, existing files keep their mode, new files honor the umask, and a read-only note is still
+  refused instead of being replaced.
+- `vault/stats` and `vault/tags` are invalidated by every note write, move and delete. They keyed
+  on the vault root mtime, which an in-place or nested edit never changes, so stale results were
+  served for up to 30 seconds.
+- `--ignore` patterns and paths are compared in Unicode NFC, so a pattern typed in NFC matches the
+  NFD names macOS returns, and the reverse.
+- The release workflow passed a `v`-prefixed version to the CHANGELOG provenance step, which
+  expects a bare one, and hid the failure with `|| true`, so release notes never carried commit
+  and PR links. The step now receives the bare version and fails the release when it errors.
+
+### Changed
+
+- `replace_in_note` rejects a regex that can match the empty string (`x*`, `^`, `\b`, `a?`) with a
+  tool error. Such a pattern matched at every position and silently rewrote the whole note.
+- The HTTP transport answers an oversized request body with `413 Request Entity Too Large` instead
+  of `400`, following `mcp-go` 1.5.0 (bumped from 1.3.0).
+
 ## [0.3.3] - 2026-11-14
 
 ### Security
