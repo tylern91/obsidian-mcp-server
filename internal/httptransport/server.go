@@ -54,7 +54,7 @@ func Run(ctx context.Context, mcpServer *mcpserver.MCPServer, cfg *config.Config
 		logger.Info("bearer token loaded from environment", "sha8", token.sha8)
 	}
 
-	cert, err := loadOrCreateCert(dir)
+	cert, err := loadOrCreateCert(dir, time.Now, logger)
 	if err != nil {
 		return fmt.Errorf("load TLS certificate: %w", err)
 	}

@@ -69,7 +69,10 @@ in addition to the default stdio transport. It is secured by default:
   directory (`os.UserConfigDir()/obsidian-mcp`) — **never under the vault
   path**, since a key stored there would be exfiltratable through the very
   read/search API it protects. Because TLS is always on, Go negotiates
-  HTTP/2 via ALPN for free; there is no plaintext fallback.
+  HTTP/2 via ALPN for free; there is no plaintext fallback. A persisted
+  certificate that has expired, or expires within 30 days, is regenerated
+  at startup, so a client that pinned the old certificate must trust the
+  new one.
 - **Bearer token authentication.** A 32-byte token (`crypto/rand`) is
   generated on first run and written to a 0600 file in the same state
   directory. It is never printed to stderr and has no `--auth-token
