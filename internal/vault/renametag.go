@@ -138,7 +138,7 @@ func renameTagInContent(content, oldTag, newTag string) (string, bool, int, erro
 				break
 			}
 			if fmHit {
-				out, err := yaml.Marshal(mapping)
+				out, err := marshalFrontmatter(mapping, rawFM)
 				if err != nil {
 					return "", false, 0, fmt.Errorf("marshal: %w", err)
 				}

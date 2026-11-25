@@ -51,7 +51,7 @@ func TestService_RenameTag_CRLF(t *testing.T) {
 
 	cases := []struct{ name, in, want string }{
 		{"inline-only hit", "---\r\ntitle: x\r\n---\r\nbody #old\r\n", "---\r\ntitle: x\r\n---\r\nbody #new\r\n"},
-		{"frontmatter hit", "---\r\ntags:\r\n- old\r\n---\r\nbody\r\n", "---\r\ntags:\r\n    - new\r\n---\r\nbody\r\n"},
+		{"frontmatter hit", "---\r\ntags:\r\n- old\r\n---\r\nbody\r\n", "---\r\ntags:\r\n  - new\r\n---\r\nbody\r\n"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
