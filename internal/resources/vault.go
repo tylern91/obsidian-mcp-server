@@ -19,7 +19,7 @@ const resourceCacheTTL = 30 * time.Second
 func cachedResourceHandler(deps Deps, compute func(context.Context, Deps) ([]mcp.ResourceContents, error)) server.ResourceHandlerFunc {
 	cache := &resourceCache{ttl: resourceCacheTTL}
 	return func(ctx context.Context, req mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
-		contents, err := cache.get(deps.Vault.Root(), func() ([]mcp.ResourceContents, error) {
+		contents, err := cache.get(deps.Vault.Root(), deps.Vault.Generation(), func() ([]mcp.ResourceContents, error) {
 			return compute(ctx, deps)
 		})
 		if err != nil {

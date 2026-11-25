@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // ErrVersionRequested is returned by Load when the --version flag is passed.
@@ -36,6 +37,9 @@ type Config struct {
 	AllowedHosts     []string
 	AllowedOrigins   []string
 	ClientCAPath     string // mTLS: path to a PEM file of trusted client CAs
+
+	// SessionMaxLifetime caps a session's age regardless of activity; 0 disables the cap.
+	SessionMaxLifetime time.Duration
 }
 
 // Load parses configuration from CLI flags, environment variables, and defaults.
@@ -62,6 +66,8 @@ func Load(args []string) (*Config, error) {
 	allowedHosts := fs.String("allowed-hosts", "", "comma-separated Host header allowlist for --transport http (required with --allow-non-loopback)")
 	allowedOrigins := fs.String("allowed-origins", "", "comma-separated Origin header allowlist for --transport http (required with --allow-non-loopback)")
 	clientCA := fs.String("client-ca", "", "path to a PEM file of trusted client CAs; enables mandatory mTLS for --transport http")
+
+	sessionMaxLifetime := fs.Duration("session-max-lifetime", 0, "absolute maximum age of an HTTP session regardless of activity, e.g. 8h (0 disables the cap)")
 
 	if err := fs.Parse(args); err != nil {
 		return nil, err
@@ -96,6 +102,7 @@ func Load(args []string) (*Config, error) {
 		AllowedHosts:       splitTrimmed(*allowedHosts),
 		AllowedOrigins:     splitTrimmed(*allowedOrigins),
 		ClientCAPath:       *clientCA,
+		SessionMaxLifetime: *sessionMaxLifetime,
 	}
 
 	// Apply environment variable overrides for flags that were NOT explicitly set.
@@ -130,6 +137,9 @@ func Load(args []string) (*Config, error) {
 	envStringSlice(explicitFlags, "allowed-hosts", "OBSIDIAN_ALLOWED_HOSTS", &cfg.AllowedHosts)
 	envStringSlice(explicitFlags, "allowed-origins", "OBSIDIAN_ALLOWED_ORIGINS", &cfg.AllowedOrigins)
 	envString(explicitFlags, "client-ca", "OBSIDIAN_CLIENT_CA", &cfg.ClientCAPath)
+	if err := envDuration(explicitFlags, "session-max-lifetime", "OBSIDIAN_SESSION_MAX_LIFETIME", &cfg.SessionMaxLifetime); err != nil {
+		return nil, err
+	}
 
 	// Normalize LogLevel: default to "warn" if unrecognized, and record the bad value.
 	switch cfg.LogLevel {
@@ -168,6 +178,10 @@ func Load(args []string) (*Config, error) {
 
 	if cfg.TrashRetentionDays < 0 {
 		return nil, fmt.Errorf("trash-retention-days must be at least 0, got %d", cfg.TrashRetentionDays)
+	}
+
+	if cfg.SessionMaxLifetime < 0 {
+		return nil, fmt.Errorf("session-max-lifetime must be at least 0, got %s", cfg.SessionMaxLifetime)
 	}
 
 	switch cfg.Transport {
@@ -266,6 +280,21 @@ func envInt(explicit map[string]bool, flag, env string, dst *int) error {
 				return fmt.Errorf("invalid %s value %q: %w", env, v, err)
 			}
 			*dst = n
+		}
+	}
+	return nil
+}
+
+// envDuration sets *dst to the parsed time.Duration value of env when the flag
+// was not explicitly provided. Returns an error if the env value cannot be parsed.
+func envDuration(explicit map[string]bool, flag, env string, dst *time.Duration) error {
+	if !explicit[flag] {
+		if v := os.Getenv(env); v != "" {
+			d, err := time.ParseDuration(v)
+			if err != nil {
+				return fmt.Errorf("invalid %s value %q: %w", env, v, err)
+			}
+			*dst = d
 		}
 	}
 	return nil

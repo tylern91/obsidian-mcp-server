@@ -69,7 +69,10 @@ in addition to the default stdio transport. It is secured by default:
   directory (`os.UserConfigDir()/obsidian-mcp`) — **never under the vault
   path**, since a key stored there would be exfiltratable through the very
   read/search API it protects. Because TLS is always on, Go negotiates
-  HTTP/2 via ALPN for free; there is no plaintext fallback.
+  HTTP/2 via ALPN for free; there is no plaintext fallback. A persisted
+  certificate that has expired, or expires within 30 days, is regenerated
+  at startup, so a client that pinned the old certificate must trust the
+  new one.
 - **Bearer token authentication.** A 32-byte token (`crypto/rand`) is
   generated on first run and written to a 0600 file in the same state
   directory. It is never printed to stderr and has no `--auth-token
@@ -78,11 +81,14 @@ in addition to the default stdio transport. It is secured by default:
   available as an explicit opt-in override. Only the token file's path and
   `sha256(token)[:8]` are ever logged. Comparison hashes both sides to a
   fixed width before `subtle.ConstantTimeCompare`, so a length mismatch
-  can't be timed.
+  can't be timed. A supplied token shorter than 32 characters is accepted
+  but logs a warning with its length (never the value).
 - **Sessions are bound to their issuing credential.** The custom
   `SessionIdManager` (`internal/httptransport/session.go`) rejects a
   session ID presented with a different bearer token or client
-  certificate than the one that created it.
+  certificate than the one that created it. `--session-max-lifetime`
+  (default off) also caps a session's total age, so a stolen session ID
+  cannot be kept alive by activity alone.
 - **Optional mutual TLS** via `--client-ca <path>`, enforced with
   `tls.RequireAndVerifyClientCert` — never the fail-open
   `VerifyClientCertIfGiven`.

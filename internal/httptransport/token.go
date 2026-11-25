@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 )
@@ -14,6 +15,10 @@ const (
 	tokenFileName = "token"
 	tokenByteLen  = 32
 	envAuthToken  = "OBSIDIAN_AUTH_TOKEN"
+
+	// minTokenLen is the recommended minimum length of a bearer token. It is
+	// advisory only: rejecting shorter tokens would lock out existing setups.
+	minTokenLen = 32
 )
 
 // authToken holds the bearer token and its hash for comparison and logging.
@@ -22,7 +27,9 @@ const (
 type authToken struct {
 	hash [sha256.Size]byte
 	sha8 string
-	path string // empty when sourced from the environment
+	// length is the token length in bytes; the value itself is never kept.
+	length int
+	path   string // empty when sourced from the environment
 }
 
 // loadOrCreateToken resolves the bearer token in priority order: the
@@ -32,13 +39,13 @@ type authToken struct {
 // world-readable via /proc/<pid>/cmdline and `ps`.
 func loadOrCreateToken(dir string) (authToken, error) {
 	if env := os.Getenv(envAuthToken); env != "" {
-		return authToken{hash: sha256.Sum256([]byte(env)), sha8: sha8Hex(env)}, nil
+		return authToken{hash: sha256.Sum256([]byte(env)), sha8: sha8Hex(env), length: len(env)}, nil
 	}
 
 	path := filepath.Join(dir, tokenFileName)
 	if data, err := os.ReadFile(path); err == nil {
 		token := string(data)
-		return authToken{hash: sha256.Sum256([]byte(token)), sha8: sha8Hex(token), path: path}, nil
+		return authToken{hash: sha256.Sum256([]byte(token)), sha8: sha8Hex(token), length: len(token), path: path}, nil
 	} else if !os.IsNotExist(err) {
 		return authToken{}, fmt.Errorf("read token file %s: %w", path, err)
 	}
@@ -51,7 +58,17 @@ func loadOrCreateToken(dir string) (authToken, error) {
 	if err := os.WriteFile(path, []byte(token), 0o600); err != nil {
 		return authToken{}, fmt.Errorf("write token file %s: %w", path, err)
 	}
-	return authToken{hash: sha256.Sum256([]byte(token)), sha8: sha8Hex(token), path: path}, nil
+	return authToken{hash: sha256.Sum256([]byte(token)), sha8: sha8Hex(token), length: len(token), path: path}, nil
+}
+
+// warnWeakToken logs a warning when the token is shorter than minTokenLen. It
+// logs the length only, never the token.
+func warnWeakToken(logger *slog.Logger, t authToken) {
+	if t.length >= minTokenLen {
+		return
+	}
+	logger.Warn("bearer token is shorter than recommended; use at least 32 random characters",
+		"length", t.length, "recommended_min", minTokenLen)
 }
 
 func sha8Hex(s string) string {

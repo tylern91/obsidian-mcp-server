@@ -9,3 +9,12 @@ func SetAfterUnlockedReadHook(fn func(rel string)) (restore func()) {
 	afterUnlockedReadHook = fn
 	return func() { afterUnlockedReadHook = prev }
 }
+
+// SetBeforeRenameHook installs a hook that atomic writes call after the temp
+// file is synced and before the rename; a non-nil return aborts the write.
+// The returned func restores the previous hook.
+func SetBeforeRenameHook(fn func() error) (restore func()) {
+	prev := beforeRenameHook
+	beforeRenameHook = fn
+	return func() { beforeRenameHook = prev }
+}

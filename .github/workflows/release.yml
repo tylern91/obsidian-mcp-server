@@ -49,14 +49,16 @@ jobs:
     steps:
       - name: Mint scoped App token
         id: app-token
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3
         with:
           client-id: ${{ secrets.HOMEBREW_APP_ID }}
           private-key: ${{ secrets.HOMEBREW_APP_PRIVATE_KEY }}
           owner: tylern91
           repositories: obsidian-mcp-server
+          # Checkout fetch (read), tag push and `gh release create` (write) all use contents.
+          permission-contents: write
 
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
@@ -128,7 +130,14 @@ jobs:
       - name: Stamp CHANGELOG refs
         env:
           STAMP_HEAD_REF: HEAD
-        run: bash scripts/stamp-changelog-refs.sh "${{ steps.ver.outputs.next }}" || true
+          NEXT: ${{ steps.ver.outputs.next }}
+        run: |
+          set -Eeuo pipefail
+          # The script takes a bare version; steps.ver.outputs.next is v-prefixed.
+          if ! bash scripts/stamp-changelog-refs.sh "${NEXT#v}"; then
+            echo "::error::failed to stamp CHANGELOG refs for ${NEXT}"
+            exit 1
+          fi
 
       - name: Build release notes
         id: notes

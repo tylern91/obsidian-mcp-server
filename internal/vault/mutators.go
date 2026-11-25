@@ -95,7 +95,7 @@ func (s *Service) PatchNote(ctx context.Context, path string, p PatchOp, opts ..
 	}
 
 	combined := strings.Join(result, "\n")
-	if err := os.WriteFile(absPath, []byte(combined), 0644); err != nil {
+	if err := s.writeFileAtomic(absPath, []byte(combined)); err != nil {
 		return &PathError{Op: "patch", Path: path, Err: err}
 	}
 	return nil
@@ -184,6 +184,7 @@ func (s *Service) DeleteNote(ctx context.Context, path, confirm string, permanen
 			}
 			return &PathError{Op: "delete", Path: path, Err: err}
 		}
+		s.gen.Add(1)
 		return nil
 	}
 
@@ -200,6 +201,7 @@ func (s *Service) DeleteNote(ctx context.Context, path, confirm string, permanen
 		}
 		return &PathError{Op: "delete", Path: path, Err: err}
 	}
+	s.gen.Add(1)
 	return nil
 }
 
@@ -374,6 +376,7 @@ func (s *Service) moveFileLocked(src, srcAbs, dst, dstAbs string, opts ...WriteO
 		}
 		return &PathError{Op: "move", Path: src, Err: err}
 	}
+	s.gen.Add(1)
 	return nil
 }
 
