@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/tylern91/obsidian-mcp-server/internal/vault"
 )
 
 // ErrVersionRequested is returned by Load when the --version flag is passed.
@@ -40,6 +42,9 @@ type Config struct {
 
 	// SessionMaxLifetime caps a session's age regardless of activity; 0 disables the cap.
 	SessionMaxLifetime time.Duration
+
+	// ToolTimeout bounds every tool call; 0 (the default) disables the limit.
+	ToolTimeout time.Duration
 }
 
 // Load parses configuration from CLI flags, environment variables, and defaults.
@@ -68,6 +73,8 @@ func Load(args []string) (*Config, error) {
 	clientCA := fs.String("client-ca", "", "path to a PEM file of trusted client CAs; enables mandatory mTLS for --transport http")
 
 	sessionMaxLifetime := fs.Duration("session-max-lifetime", 0, "absolute maximum age of an HTTP session regardless of activity, e.g. 8h (0 disables the cap)")
+
+	toolTimeout := fs.Duration("tool-timeout", 0, "per-call timeout for every tool, e.g. 30s; a call that exceeds it returns a tool error (0 disables the limit)")
 
 	if err := fs.Parse(args); err != nil {
 		return nil, err
@@ -103,6 +110,7 @@ func Load(args []string) (*Config, error) {
 		AllowedOrigins:     splitTrimmed(*allowedOrigins),
 		ClientCAPath:       *clientCA,
 		SessionMaxLifetime: *sessionMaxLifetime,
+		ToolTimeout:        *toolTimeout,
 	}
 
 	// Apply environment variable overrides for flags that were NOT explicitly set.
@@ -141,6 +149,10 @@ func Load(args []string) (*Config, error) {
 		return nil, err
 	}
 
+	if err := envDuration(explicitFlags, "tool-timeout", "OBSIDIAN_TOOL_TIMEOUT", &cfg.ToolTimeout); err != nil {
+		return nil, err
+	}
+
 	// Normalize LogLevel: default to "warn" if unrecognized, and record the bad value.
 	switch cfg.LogLevel {
 	case "debug", "info", "warn", "error":
@@ -168,6 +180,12 @@ func Load(args []string) (*Config, error) {
 		cfg.VaultName = filepath.Base(cfg.VaultPath)
 	}
 
+	for _, entry := range cfg.IgnorePatterns {
+		if err := vault.ValidateIgnorePattern(entry); err != nil {
+			return nil, fmt.Errorf("invalid --ignore / OBSIDIAN_IGNORE: %w", err)
+		}
+	}
+
 	if cfg.MaxBatch < 1 {
 		return nil, fmt.Errorf("max-batch must be at least 1, got %d", cfg.MaxBatch)
 	}
@@ -182,6 +200,10 @@ func Load(args []string) (*Config, error) {
 
 	if cfg.SessionMaxLifetime < 0 {
 		return nil, fmt.Errorf("session-max-lifetime must be at least 0, got %s", cfg.SessionMaxLifetime)
+	}
+
+	if cfg.ToolTimeout < 0 {
+		return nil, fmt.Errorf("tool-timeout must be at least 0, got %s", cfg.ToolTimeout)
 	}
 
 	switch cfg.Transport {

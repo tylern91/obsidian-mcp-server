@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -107,6 +106,15 @@ func globToRegex(glob string) string {
 //
 // An empty Scope defaults to "content".
 func (s *Service) SearchRegex(ctx context.Context, opts RegexOptions) ([]RegexResult, error) {
+	results, _, err := s.SearchRegexTotal(ctx, opts)
+	return results, err
+}
+
+// SearchRegexTotal is SearchRegex plus the number of matching files in the
+// whole vault. After the limit is reached the walk continues in count-only
+// mode (one match per file, nothing retained), so total > len(results) means
+// the results were truncated.
+func (s *Service) SearchRegexTotal(ctx context.Context, opts RegexOptions) ([]RegexResult, int, error) {
 	limit := opts.Limit
 	if limit <= 0 {
 		limit = defaultRegexLimit
@@ -129,14 +137,18 @@ func (s *Service) SearchRegex(ctx context.Context, opts RegexOptions) ([]RegexRe
 	}
 	re, err := regexp.Compile(pattern)
 	if err != nil {
-		return nil, fmt.Errorf("SearchRegex: invalid pattern %q: %w", opts.Pattern, err)
+		return nil, 0, fmt.Errorf("SearchRegex: invalid pattern %q: %w", opts.Pattern, err)
 	}
 
 	var results []RegexResult
+	total := 0
 
 	walkErr := s.vault.WalkNotes(ctx, func(rel, abs string) error {
-		if len(results) >= limit {
-			return filepath.SkipAll
+		counting := len(results) >= limit
+
+		scanMax := maxPerFile
+		if counting {
+			scanMax = 1
 		}
 
 		var result *RegexResult
@@ -154,7 +166,7 @@ func (s *Service) SearchRegex(ctx context.Context, opts RegexOptions) ([]RegexRe
 			// Only skip content scan for "both" when we already have a path hit
 			// AND we haven't reached the per-file match cap (content matches
 			// still add line snippets even when path already matched).
-			matches, scanErr := scanFileMatches(ctx, abs, re, maxPerFile)
+			matches, scanErr := scanFileMatches(ctx, abs, re, scanMax)
 			if scanErr != nil {
 				return scanErr
 			}
@@ -167,16 +179,19 @@ func (s *Service) SearchRegex(ctx context.Context, opts RegexOptions) ([]RegexRe
 		}
 
 		if result != nil {
-			results = append(results, *result)
+			total++
+			if !counting {
+				results = append(results, *result)
+			}
 		}
 		return nil
 	})
 
 	if walkErr != nil {
-		return nil, walkErr
+		return nil, 0, walkErr
 	}
 
-	return results, nil
+	return results, total, nil
 }
 
 // scanFileMatches opens the file at abs and returns up to maxMatches lines that

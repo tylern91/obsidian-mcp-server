@@ -61,7 +61,7 @@ func searchNotesHandler(deps Deps) server.ToolHandlerFunc {
 			PathScope:         req.GetString("pathScope", ""),
 		}
 
-		results, err := deps.Search.SearchBM25(ctx, opts)
+		results, total, err := deps.Search.SearchBM25Total(ctx, opts)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
@@ -79,11 +79,18 @@ func searchNotesHandler(deps Deps) server.ToolHandlerFunc {
 			Query   string               `json:"query"`
 			Results []bm25ResultWithLink `json:"results"`
 			Total   int                  `json:"total"`
+			// MatchCount is the number of matching notes before the limit was
+			// applied; Truncated is true when results were cut.
+			MatchCount int  `json:"matchCount"`
+			Truncated  bool `json:"truncated"`
 		}
 		return response.ToolResult(req, deps.PrettyPrint, searchNotesResponse{
 			Query:   query,
 			Results: linked,
 			Total:   len(linked),
+
+			MatchCount: total,
+			Truncated:  total > len(linked),
 		})
 	}
 }
@@ -134,7 +141,7 @@ func searchRegexHandler(deps Deps) server.ToolHandlerFunc {
 			MaxMatchesPerFile: req.GetInt("maxMatchesPerFile", 0),
 		}
 
-		results, err := deps.Search.SearchRegex(ctx, opts)
+		results, total, err := deps.Search.SearchRegexTotal(ctx, opts)
 		if err != nil {
 			// Return as tool error content, not a Go error, so callers see a
 			// structured response (e.g. invalid regex pattern).
@@ -155,12 +162,19 @@ func searchRegexHandler(deps Deps) server.ToolHandlerFunc {
 			Scope   string                `json:"scope"`
 			Results []regexResultWithLink `json:"results"`
 			Total   int                   `json:"total"`
+			// MatchCount is the number of matching files before the limit was
+			// applied; Truncated is true when results were cut.
+			MatchCount int  `json:"matchCount"`
+			Truncated  bool `json:"truncated"`
 		}
 		return response.ToolResult(req, deps.PrettyPrint, searchRegexResponse{
 			Pattern: pattern,
 			Scope:   scope,
 			Results: linked,
 			Total:   len(linked),
+
+			MatchCount: total,
+			Truncated:  total > len(linked),
 		})
 	}
 }
