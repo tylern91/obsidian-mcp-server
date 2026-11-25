@@ -332,13 +332,20 @@ func readDoc(rel, abs string, terms []string, opts BM25Options) (*docContent, er
 // Pass 1: walk all notes matching PathScope, collect corpus stats and cache
 // parsed document data. Pass 2: score each cached document using BM25 formula.
 func (s *Service) SearchBM25(ctx context.Context, opts BM25Options) ([]BM25Result, error) {
+	results, _, err := s.SearchBM25Total(ctx, opts)
+	return results, err
+}
+
+// SearchBM25Total is SearchBM25 plus the number of matching documents before
+// the limit was applied. total > len(results) means the results were truncated.
+func (s *Service) SearchBM25Total(ctx context.Context, opts BM25Options) ([]BM25Result, int, error) {
 	if opts.Query == "" {
-		return nil, nil
+		return nil, 0, nil
 	}
 
 	// Both explicitly false → nothing to search.
 	if !opts.SearchContent && !opts.SearchFrontmatter {
-		return nil, nil
+		return nil, 0, nil
 	}
 
 	limit := opts.Limit
@@ -355,7 +362,7 @@ func (s *Service) SearchBM25(ctx context.Context, opts BM25Options) ([]BM25Resul
 
 	terms := buildTerms(opts.Query, opts.CaseSensitive)
 	if len(terms) == 0 {
-		return nil, nil
+		return nil, 0, nil
 	}
 
 	// ---- Pass 1: Corpus statistics + cache documents ----
@@ -395,11 +402,11 @@ func (s *Service) SearchBM25(ctx context.Context, opts BM25Options) ([]BM25Resul
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	if stats.N == 0 {
-		return nil, nil
+		return nil, 0, nil
 	}
 	stats.avgDL = float64(totalTokens) / float64(stats.N)
 
@@ -408,7 +415,7 @@ func (s *Service) SearchBM25(ctx context.Context, opts BM25Options) ([]BM25Resul
 
 	for _, dc := range docs {
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 
 		docLen := float64(len(dc.allTokens))
@@ -464,6 +471,7 @@ func (s *Service) SearchBM25(ctx context.Context, opts BM25Options) ([]BM25Resul
 		return scored[i].dc.rel < scored[j].dc.rel
 	})
 
+	total := len(scored)
 	if len(scored) > limit {
 		scored = scored[:limit]
 	}
@@ -483,7 +491,7 @@ func (s *Service) SearchBM25(ctx context.Context, opts BM25Options) ([]BM25Resul
 		})
 	}
 
-	return results, nil
+	return results, total, nil
 }
 
 // anyTermIn reports whether any non-phrase-key term in terms is a substring

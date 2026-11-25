@@ -33,7 +33,7 @@ A Go [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server for 
 | `get_frontmatter` | Read YAML frontmatter from a note | `path` (required), `prettyPrint` |
 | `update_frontmatter` | Set or remove frontmatter keys (format-preserving) | `path` (required), `updates` (JSON object), `removeKeys` (JSON array), `if_match` (optional etag) |
 | `manage_tags` | Add or remove a tag on a note | `path`, `action`: add/remove (required), `tag` (required), `location`: frontmatter/inline, `if_match` (optional etag) |
-| `list_all_tags` | Aggregate all tags across the vault with counts | `prettyPrint` |
+| `list_all_tags` | Aggregate all tags across the vault with counts, ordered by count descending then name; pageable | `limit`, `offset`, `prettyPrint` |
 | `get_backlinks` | Find all notes that link to a target note | `path` (required), `prettyPrint` |
 | `patch_note` | Apply a heading-anchored patch to a note | `path`, `heading`, `position`: before/after/replace_body, `content` (all required), `line` (optional int, 1-based heading line from `get_note_outline`), `if_match` (optional etag) |
 | `rename_heading` | Rename a heading, keeping its level; rewrites anchors that point at it vault-wide by default | `path`, `heading`, `newHeading` (all required), `line` (optional int, disambiguates duplicates), `updateLinks` (bool, default true), `if_match` (optional etag) |
@@ -80,7 +80,7 @@ Headings inside fenced code blocks (``` or ~~~) are not headings: `patch_note`, 
 | `pathScope` | string | — | Glob pattern to restrict search scope (e.g. `Daily Notes/*`) |
 | `prettyPrint` | boolean | false | Format JSON with indentation |
 
-Returns: `{ query, results: [{ path, score, matchCount, matches: [{line, snippet, term}], tokenCount, reason }], total }`
+Returns: `{ query, results: [{ path, score, matchCount, matches: [{line, snippet, term}], tokenCount, reason }], total, matchCount, truncated }`. `total` is the number of results returned, `matchCount` the number of matching notes before `limit` (and `--max-results`) was applied, and `truncated` is `true` when results were cut.
 
 **`search_regex` parameters**:
 
@@ -93,7 +93,17 @@ Returns: `{ query, results: [{ path, score, matchCount, matches: [{line, snippet
 | `maxMatchesPerFile` | integer | 5 | Maximum match snippets per result |
 | `prettyPrint` | boolean | false | Format JSON with indentation |
 
-Returns: `{ pattern, scope, results: [{ path, matches: [{line, snippet}] }], total }`
+Returns: `{ pattern, scope, results: [{ path, matches: [{line, snippet}] }], total, matchCount, truncated }`. `matchCount` is the number of matching files found; the search stops at the first match beyond `limit`, so when `truncated` is `true` (results were cut) `matchCount` is a lower bound (at least `limit`+1), not an exact total.
+
+**`list_all_tags` parameters**:
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `limit` | integer | all | Maximum number of tags to return |
+| `offset` | integer | 0 | Number of tags to skip (tags are ordered by count descending, then name) |
+| `prettyPrint` | boolean | false | Format JSON with indentation |
+
+Returns: `{ tags: [{ name, count }], total, offset, truncated }`. `total` is the number of distinct tags in the vault; `truncated` is `true` when more tags remain after this page. Omitting `limit` and `offset` returns every tag, as before.
 
 **Batch tools (`read_multiple_notes`, `get_notes_info`)**: The `paths` parameter is a JSON array string — e.g. `'["Notes/foo.md","Notes/bar.md"]'`. `summary:true` returns `headOf` (first N runes from `headChars`, default 200) instead of full content, which is useful for large notes to stay within context limits. Both tools enforce `--max-batch` (default 10); requests with more paths are silently truncated and the response includes `"truncated": true`.
 
@@ -263,7 +273,7 @@ Configuration follows **CLI flag > environment variable > default** precedence.
 | `--vault` | `OBSIDIAN_VAULT_PATH` | *(required)* | Absolute or relative path to an existing directory. Validated at startup — non-existent paths or files (not dirs) cause an immediate error. Surrounding whitespace is trimmed. |
 | `--version` | — | — | Prints the binary version to stdout and exits. Does not require `--vault`. |
 | `--extensions` | `OBSIDIAN_EXTENSIONS` | `.md,.markdown,.txt,.canvas` | Comma-separated list. Each entry should start with `.` (e.g. `.md`). Whitespace around entries is trimmed; empty entries are discarded. Only files matching one of these extensions are visible to MCP tools. |
-| `--ignore` | `OBSIDIAN_IGNORE` | `.obsidian,.git,node_modules,.DS_Store,.trash` | Comma-separated list of file/directory names to skip during traversal. Match is by name (not glob). Whitespace trimmed; empties discarded. |
+| `--ignore` | `OBSIDIAN_IGNORE` | `.obsidian,.git,node_modules,.DS_Store,.trash` | Comma-separated list of ignore entries. An entry without `/` matches a file or directory name at any depth (e.g. `.git`). An entry containing `/` is a root-relative path prefix matched case-insensitively, NFC-normalized, on component boundaries: `Journal/Private` ignores `Journal/Private` and `Journal/Private/x.md` but not `Journal/PrivateStuff` or `Other/Journal/Private`. Leading and trailing slashes are trimmed. Not a glob. Whitespace trimmed; blank entries (such as those from a trailing or doubled comma) are ignored; `.`, `..`, a lone `/` and any entry with a `..` component cause a startup error. |
 | `--pretty` | `OBSIDIAN_PRETTY` | `false` | CLI: bare `--pretty` enables it. Env var: any value accepted by Go's `strconv.ParseBool` — `1`, `t`, `T`, `true`, `TRUE`, `True`, `0`, `f`, `F`, `false`, `FALSE`, `False`. Anything else causes a startup error. |
 | `--max-batch` | `OBSIDIAN_MAX_BATCH` | `10` | Integer ≥ `1`. Non-integer or `<1` causes a startup error. Caps the number of files processed in a single batch tool call (Phase 4). **High values increase memory usage and token count per response** — very large batches can overflow an AI client's context window and slow down individual tool calls. Keep at or near the default unless your vault files are small. |
 | `--max-results` | `OBSIDIAN_MAX_RESULTS` | `20` | Integer ≥ `1`. Non-integer or `<1` causes a startup error. Caps the number of search results returned. **High values increase response token count** — returning hundreds of results per search can exhaust the AI client's context window with low-relevance entries. Increase only when precision-recall trade-offs require broader result sets. |
@@ -277,6 +287,7 @@ Configuration follows **CLI flag > environment variable > default** precedence.
 | `--allow-non-loopback` | `OBSIDIAN_ALLOW_NON_LOOPBACK` | `false` | Allows `--http-bind` to a non-loopback address. Requires non-empty `--allowed-hosts` and `--allowed-origins` — an explicit, three-flag confirmation gate. |
 | `--allowed-hosts` | `OBSIDIAN_ALLOWED_HOSTS` | *(empty)* | Comma-separated Host header allowlist for `--transport http`. Required with `--allow-non-loopback`. |
 | `--allowed-origins` | `OBSIDIAN_ALLOWED_ORIGINS` | *(empty)* | Comma-separated Origin header allowlist for `--transport http`. Required with `--allow-non-loopback`. |
+| `--tool-timeout` | `OBSIDIAN_TOOL_TIMEOUT` | `0` (disabled) | Go duration such as `30s`. Per-call timeout applied to every tool at registration. Handlers observe the deadline at each context-aware step (vault walks, search scans); a call that fails after the deadline returns a tool error naming the tool and the timeout. A call that already completed successfully keeps its result. `0` disables the limit; negative or unparseable values cause a startup error. |
 | `--session-max-lifetime` | `OBSIDIAN_SESSION_MAX_LIFETIME` | `0` (disabled) | Go duration such as `8h` or `90m`. Absolute maximum age of an HTTP session: once a session is older than this it expires even if the client is still active, and the client must re-initialize. Sessions otherwise use a 30-minute sliding idle timeout. `0` disables the cap; negative or unparseable values cause a startup error. Applies to `--transport http` only. |
 | `--client-ca` | `OBSIDIAN_CLIENT_CA` | *(none)* | Path to a PEM file of trusted client CAs. Enables mandatory mutual TLS for `--transport http` — connections without a valid client certificate are rejected. |
 

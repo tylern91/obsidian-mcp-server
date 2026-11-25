@@ -80,6 +80,7 @@ func run(args []string) error {
 		mcpserver.WithToolCapabilities(true),
 		mcpserver.WithPromptCapabilities(true),
 		mcpserver.WithResourceCapabilities(false, true),
+		mcpserver.WithInstructions(tools.Instructions),
 	)
 
 	tools.RegisterAll(s, tools.Deps{
@@ -91,6 +92,7 @@ func run(args []string) error {
 		MaxResults:  cfg.MaxResults,
 		ReadOnly:    cfg.ReadOnly,
 		VaultName:   cfg.VaultName,
+		ToolTimeout: cfg.ToolTimeout,
 	})
 	prompts.RegisterAll(s, prompts.Deps{
 		Vault:    vaultSvc,

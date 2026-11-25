@@ -110,7 +110,7 @@ func (s *Service) sanitizePath(op, relativePath string) (cleaned, absPath string
 		return "", "", &PathError{Op: op, Path: relativePath, Err: ErrPathTraversal}
 	}
 
-	if IsInternalState(cleaned) || (s.filter != nil && s.filter.IsIgnored(relativePath)) {
+	if IsInternalState(cleaned) || (s.filter != nil && s.filter.IsIgnored(cleaned)) {
 		return "", "", &PathError{Op: op, Path: relativePath, Err: ErrPathRestricted}
 	}
 

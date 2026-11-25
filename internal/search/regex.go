@@ -107,6 +107,17 @@ func globToRegex(glob string) string {
 //
 // An empty Scope defaults to "content".
 func (s *Service) SearchRegex(ctx context.Context, opts RegexOptions) ([]RegexResult, error) {
+	results, _, err := s.SearchRegexTotal(ctx, opts)
+	return results, err
+}
+
+// SearchRegexTotal is SearchRegex plus a matching-file count. When the results
+// fit within the limit, total == len(results) and is exact. Once the limit is
+// reached the walk stops at the first further matching file, so a truncated
+// search reports total == limit+1 and total is only a lower bound on the
+// number of matching files (total > len(results) means truncated). This keeps
+// truncated searches from reading every remaining file.
+func (s *Service) SearchRegexTotal(ctx context.Context, opts RegexOptions) ([]RegexResult, int, error) {
 	limit := opts.Limit
 	if limit <= 0 {
 		limit = defaultRegexLimit
@@ -129,14 +140,20 @@ func (s *Service) SearchRegex(ctx context.Context, opts RegexOptions) ([]RegexRe
 	}
 	re, err := regexp.Compile(pattern)
 	if err != nil {
-		return nil, fmt.Errorf("SearchRegex: invalid pattern %q: %w", opts.Pattern, err)
+		return nil, 0, fmt.Errorf("SearchRegex: invalid pattern %q: %w", opts.Pattern, err)
 	}
 
 	var results []RegexResult
+	total := 0
 
 	walkErr := s.vault.WalkNotes(ctx, func(rel, abs string) error {
-		if len(results) >= limit {
-			return filepath.SkipAll
+		// Past the limit, one further match is enough to know the results are
+		// truncated: scan for a single hit and stop the walk.
+		counting := len(results) >= limit
+
+		scanMax := maxPerFile
+		if counting {
+			scanMax = 1
 		}
 
 		var result *RegexResult
@@ -154,7 +171,7 @@ func (s *Service) SearchRegex(ctx context.Context, opts RegexOptions) ([]RegexRe
 			// Only skip content scan for "both" when we already have a path hit
 			// AND we haven't reached the per-file match cap (content matches
 			// still add line snippets even when path already matched).
-			matches, scanErr := scanFileMatches(ctx, abs, re, maxPerFile)
+			matches, scanErr := scanFileMatches(ctx, abs, re, scanMax)
 			if scanErr != nil {
 				return scanErr
 			}
@@ -167,16 +184,20 @@ func (s *Service) SearchRegex(ctx context.Context, opts RegexOptions) ([]RegexRe
 		}
 
 		if result != nil {
+			total++
+			if counting {
+				return filepath.SkipAll
+			}
 			results = append(results, *result)
 		}
 		return nil
 	})
 
 	if walkErr != nil {
-		return nil, walkErr
+		return nil, 0, walkErr
 	}
 
-	return results, nil
+	return results, total, nil
 }
 
 // scanFileMatches opens the file at abs and returns up to maxMatches lines that

@@ -1,6 +1,9 @@
 package vault
 
 import (
+	"errors"
+	"fmt"
+	pathpkg "path"
 	"path/filepath"
 	"strings"
 
@@ -10,8 +13,16 @@ import (
 // PathFilter determines whether a vault path should be ignored or is
 // allowed based on configurable patterns and file extensions.
 type PathFilter struct {
-	ignorePatterns []string // e.g. [".obsidian", ".git", "node_modules"]
+	ignorePatterns []ignorePattern
 	allowedExts    []string // e.g. [".md", ".markdown", ".txt", ".canvas"]
+}
+
+// ignorePattern is one parsed ignore entry. An entry without a slash matches
+// any single path component; an entry with a slash is a root-relative path
+// prefix held as its components.
+type ignorePattern struct {
+	component string   // any-component pattern (NFC); empty when parts is set
+	parts     []string // root-relative prefix components (NFC)
 }
 
 // internalStateDir is the top-level directory obsidian-mcp-server uses for
@@ -34,45 +45,104 @@ func IsInternalState(path string) bool {
 // allowed extensions. Either slice may be nil or empty. Ignore patterns are
 // stored NFC-normalized; macOS file systems return NFD names, so IsIgnored
 // normalizes candidate paths the same way.
+//
+// An entry containing "/" is a root-relative path prefix: leading and trailing
+// slashes are trimmed and the remaining components must match the start of the
+// candidate path on component boundaries. An entry without "/" matches any
+// single component at any depth.
 func NewPathFilter(ignorePatterns, allowedExts []string) *PathFilter {
-	var normalizedPatterns []string
-	if ignorePatterns != nil {
-		normalizedPatterns = make([]string, len(ignorePatterns))
-		for i, p := range ignorePatterns {
-			normalizedPatterns[i] = norm.NFC.String(p)
+	var parsed []ignorePattern
+	for _, p := range ignorePatterns {
+		p = norm.NFC.String(strings.TrimSpace(p))
+		if strings.Contains(p, "/") {
+			var parts []string
+			for _, c := range strings.Split(strings.Trim(p, "/"), "/") {
+				if c != "" {
+					parts = append(parts, c)
+				}
+			}
+			if len(parts) == 0 {
+				continue
+			}
+			parsed = append(parsed, ignorePattern{parts: parts})
+			continue
 		}
+		parsed = append(parsed, ignorePattern{component: p})
 	}
 	return &PathFilter{
-		ignorePatterns: normalizedPatterns,
+		ignorePatterns: parsed,
 		allowedExts:    allowedExts,
 	}
 }
 
-// IsIgnored reports whether any path component (directory or file name)
-// matches one of the configured ignore patterns.
-// Matching is case-insensitive (the vault may live on a case-insensitive
-// filesystem) and requires a whole-component match —
-// a partial prefix like ".git-backup" does not match the pattern ".git".
+// ValidateIgnorePattern reports why an ignore entry is unusable: empty, ".",
+// "..", or containing a ".." component. A nil return means the entry is valid.
+func ValidateIgnorePattern(entry string) error {
+	e := strings.TrimSpace(entry)
+	if e == "" {
+		return errors.New("ignore entry is empty")
+	}
+	trimmed := strings.Trim(e, "/")
+	if trimmed == "" || trimmed == "." {
+		return fmt.Errorf("ignore entry %q is not a usable pattern", entry)
+	}
+	for _, c := range strings.Split(trimmed, "/") {
+		if c == ".." {
+			return fmt.Errorf("ignore entry %q must not contain a \"..\" component", entry)
+		}
+		if c == "." {
+			return fmt.Errorf("ignore entry %q must not contain a \".\" component", entry)
+		}
+	}
+	return nil
+}
+
+// IsIgnored reports whether path matches one of the configured ignore
+// patterns. Matching is case-insensitive (the vault may live on a
+// case-insensitive filesystem), NFC-normalized, and always on whole-component
+// boundaries: a partial prefix like ".git-backup" does not match ".git", and
+// "Journal/PrivateStuff" does not match the path entry "Journal/Private".
+// Path entries (containing "/") are anchored at the vault root.
 func (f *PathFilter) IsIgnored(path string) bool {
 	if len(f.ignorePatterns) == 0 {
 		return false
 	}
 
-	// Normalize separators so we can split uniformly.
-	normalized := norm.NFC.String(filepath.ToSlash(path))
-	components := strings.Split(normalized, "/")
+	// Lexically clean first so no caller can bypass a root-anchored entry with
+	// an unclean path such as "Other/../Journal/Private/x.md". Backslashes are
+	// treated as separators too: over-matching is the safe direction here.
+	slashed := strings.ReplaceAll(filepath.ToSlash(path), `\`, "/")
+	normalized := norm.NFC.String(pathpkg.Clean(slashed))
+	var components []string
+	for _, c := range strings.Split(normalized, "/") {
+		if c != "" && c != "." {
+			components = append(components, c)
+		}
+	}
 
-	for _, component := range components {
-		if component == "" {
+	for _, pattern := range f.ignorePatterns {
+		if pattern.parts != nil {
+			if len(components) >= len(pattern.parts) && prefixEqualFold(components, pattern.parts) {
+				return true
+			}
 			continue
 		}
-		for _, pattern := range f.ignorePatterns {
-			if strings.EqualFold(component, pattern) {
+		for _, component := range components {
+			if strings.EqualFold(component, pattern.component) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+func prefixEqualFold(components, parts []string) bool {
+	for i, p := range parts {
+		if !strings.EqualFold(components[i], p) {
+			return false
+		}
+	}
+	return true
 }
 
 // IsAllowedExtension reports whether the file extension of path is in the
