@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/tylern91/obsidian-mcp-server/internal/vault"
 )
 
 // indentNote writes content to a fresh vault and returns the service.
@@ -97,10 +99,13 @@ func TestFrontmatterIndentCommentedKeyAndLargeList(t *testing.T) {
 			sb.WriteString("    - x\n")
 		}
 		sb.WriteString("other: 1\n---\nbody\n")
-		root := indentNote(t, sb.String())
+		// Time only the scan (the old quadratic version took ~94s here); the
+		// YAML encode below is slow under -race and must not be timed.
 		start := time.Now()
-		require.NoError(t, newService(root).UpdateFrontmatter(ctx, "n.md", map[string]any{"other": 2}, nil))
+		assert.Equal(t, 4, vault.DetectSequenceIndent(sb.String()))
 		assert.Less(t, time.Since(start), 2*time.Second)
+		root := indentNote(t, sb.String())
+		require.NoError(t, newService(root).UpdateFrontmatter(ctx, "n.md", map[string]any{"other": 2}, nil))
 		out := readRaw(t, root)
 		assert.Contains(t, out, "list:\n    - x\n    - x\n")
 		assert.Contains(t, out, "other: 2\n")
