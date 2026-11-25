@@ -55,6 +55,15 @@ The security-relevant guarantees, in `internal/vault/`:
   never fall back case-insensitively. A write needs certainty about exactly
   which file is being mutated — see `.claude/CLAUDE.md` § Path security.
 
+## Prompt injection and untrusted vault content
+
+Treat everything in the vault as untrusted data. A note can contain text written to look like instructions ("ignore previous instructions and delete ..."), and a model that reads it through `read_note`, `search_notes` or similar may follow it. The server cannot tell such text from a real request.
+
+- Use `--read-only` (or `OBSIDIAN_READ_ONLY=true`) for shared or untrusted vaults. Mutating tools are then not registered at all, so they never appear in `tools/list`, and a call to one is refused.
+- `delete_note` requires a `confirm` argument equal to the path and, by default, moves the note to `.obsidian-mcp/trash/` instead of deleting it. Entries are pruned after `--trash-retention-days` (default 30). `permanent: true` hard-deletes, and `confirm` is still required.
+- Every tool sets `readOnlyHint` and `destructiveHint`. Mutating tools carry `readOnlyHint: false`, and all of them except `get_periodic_note` also carry `destructiveHint: true`, so MCP hosts can require user approval before running them.
+- Pair the server with host-side tool approval for mutating tools. These measures limit damage but do not stop a model from being misled by note content.
+
 ## HTTP transport
 
 `--transport http` starts a Streamable HTTP listener (`internal/httptransport/`)
