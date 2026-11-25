@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-26
+
+Ideas from a review of the recent issues and PRs in two upstream Obsidian MCP servers
+(`cyanheads/obsidian-mcp-server` and `MarkusPfundstein/mcp-obsidian`), checked against this server.
+
+### Added
+
+- `rename_heading` renames a heading and keeps its level. With `updateLinks` (default true) it
+  rewrites `[[Note#Old]]`, aliased and embedded wikilink anchors, same-note `[[#Old]]` anchors and
+  `[text](Note.md#old)` links through the same engine as `move_note`. It takes `if_match` and an
+  optional `line`, and is not registered in read-only mode.
+- `patch_note` accepts an optional `line` (from `get_note_outline`) to choose between headings that
+  share a text.
+- Ignore entries that contain a `/` match as root-relative path prefixes, such as
+  `Journal/Private`, NFC-normalized and case-insensitive on component boundaries. Entries without a
+  `/` still match any path component. `.`, `..` and `..` components are rejected at startup.
+- `search_notes` and `search_regex` report `truncated` and `matchCount` when the limit cut the
+  results. For regex search `matchCount` is a lower bound (limit + 1) once truncated, because the
+  walk stops at the first extra match.
+- The server sends MCP `instructions` covering the etag flow, heading disambiguation, trash on
+  delete, and that vault content is untrusted data.
+- `list_all_tags` takes `limit` and `offset`, ordered by count then name, and reports `truncated`.
+- `--tool-timeout` (`OBSIDIAN_TOOL_TIMEOUT`) sets an optional per-call timeout for every tool. It is
+  off by default.
+- A test fails when a registered tool lacks `ReadOnlyHint` or `DestructiveHint`, and a token-budget
+  test bounds the size of the `tools/list` payload (4,621 tokens for 25 tools at this release).
+
+### Changed
+
+- `patch_note` no longer edits the first of several headings with the same text. It returns
+  `AMBIGUOUS_HEADING`, listing each match as "line N (level K)", and the caller passes `line`.
+  Callers that relied on first-match behavior must now disambiguate.
+- Frontmatter rewrites keep the note's block-sequence indentation (a 2-space list stays 2-space, a
+  4-space list stays 4-space). They used to re-indent every untouched list to 4 spaces.
+  Zero-offset lists are normalized to 2 spaces, and a note that mixes widths gets the dominant one.
+
+### Fixed
+
+- Heading scans in `patch_note` and `get_note_outline` skip fenced code blocks, so a `#` line inside
+  a fence is no longer treated as a heading or as the end of a section.
+- An ignore entry could be bypassed with a `..` segment in the requested path
+  (`Other/../Journal/Private/x.md`); the filter now checks the cleaned path.
+
+### Documentation
+
+- README and SECURITY.md gain a "Prompt injection and untrusted vault content" section: treat vault
+  text as data, use `--read-only` for shared vaults, and rely on the `delete_note` confirm and
+  trash plus host-side approval driven by the tool annotations.
+
 ## [0.3.4] - 2026-11-25
 
 ### Security
