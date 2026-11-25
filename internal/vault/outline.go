@@ -37,16 +37,8 @@ func (s *Service) GetNoteOutline(ctx context.Context, path string) ([]HeadingInf
 
 	lines := strings.Split(string(data), "\n")
 	headings := make([]HeadingInfo, 0)
-	for i, line := range lines {
-		prefix := headingLevel(line)
-		if prefix == "" {
-			continue
-		}
-		headings = append(headings, HeadingInfo{
-			Level: len(prefix),
-			Text:  strings.TrimSpace(line[len(prefix):]),
-			Line:  i + 1,
-		})
+	for _, h := range scanHeadings(lines) {
+		headings = append(headings, HeadingInfo{Level: len(h.prefix), Text: h.text, Line: h.idx + 1})
 	}
 	return headings, nil
 }

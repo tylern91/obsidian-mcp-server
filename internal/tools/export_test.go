@@ -11,6 +11,7 @@ var ManageTagsHandler = func(deps Deps) server.ToolHandlerFunc { return manageTa
 var ListAllTagsHandler = func(deps Deps) server.ToolHandlerFunc { return listAllTagsHandler(deps) }
 var GetBacklinksHandler = func(deps Deps) server.ToolHandlerFunc { return getBacklinksHandler(deps) }
 var PatchNoteHandler = func(deps Deps) server.ToolHandlerFunc { return patchNoteHandler(deps) }
+var RenameHeadingHandler = func(deps Deps) server.ToolHandlerFunc { return renameHeadingHandler(deps) }
 var DeleteNoteHandler = func(deps Deps) server.ToolHandlerFunc { return deleteNoteHandler(deps) }
 var MoveNoteHandler = func(deps Deps) server.ToolHandlerFunc { return moveNoteHandler(deps) }
 var SearchNotesHandler = func(deps Deps) server.ToolHandlerFunc { return searchNotesHandler(deps) }

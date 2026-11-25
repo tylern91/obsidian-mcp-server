@@ -31,6 +31,7 @@ func TestAllSpecs(t *testing.T) {
 		"list_all_tags":             false,
 		"get_backlinks":             false,
 		"patch_note":                true,
+		"rename_heading":            true,
 		"delete_note":               true,
 		"move_note":                 true,
 		"search_notes":              false,
