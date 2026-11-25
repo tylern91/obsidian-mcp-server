@@ -29,35 +29,66 @@ func marshalFrontmatter(mapping *yaml.Node, srcFrontmatter string) ([]byte, erro
 	return buf.Bytes(), nil
 }
 
+// maxIndentSamples caps how many block-sequence items are sampled; the most
+// common width is stable long before this, and the cap bounds the work on
+// hostile input.
+const maxIndentSamples = 10000
+
+// indentEntry is a previous non-blank, non-comment line on the owner stack.
+type indentEntry struct {
+	indent int
+	owner  bool // a "key:" line (not a "- " item) that can own a sequence
+}
+
+// stripYAMLComment removes a trailing " #..." comment from a line. A '#'
+// only starts a comment when preceded by whitespace and outside quotes.
+func stripYAMLComment(s string) string {
+	var quote byte
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			}
+		case c == '"' || c == '\'':
+			quote = c
+		case c == '#' && i > 0 && (s[i-1] == ' ' || s[i-1] == '\t'):
+			return s[:i]
+		}
+	}
+	return s
+}
+
 // detectSequenceIndent returns the most common indentation of a block
 // sequence item ("- ") relative to the line of the key that owns it, or
 // defaultFrontmatterIndent when there is none. Zero-offset sequences
-// ("key:\n- a") cannot be produced by yaml.v3 and are ignored.
+// ("key:\n- a") cannot be produced by yaml.v3 and are ignored. It runs in
+// linear time using a stack of enclosing lines with strictly increasing
+// indent; the owner of a line is the nearest previous line indented less.
 func detectSequenceIndent(src string) int {
-	lines := strings.Split(strings.ReplaceAll(src, "\r\n", "\n"), "\n")
 	counts := map[int]int{}
-	for i, line := range lines {
+	var stack []indentEntry
+	samples := 0
+	for _, line := range strings.Split(strings.ReplaceAll(src, "\r\n", "\n"), "\n") {
 		trimmed := strings.TrimLeft(line, " ")
-		if !strings.HasPrefix(trimmed, "- ") && trimmed != "-" {
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
-		itemIndent := len(line) - len(trimmed)
-		// The owning key is the nearest previous line indented less than
-		// this item (a sibling "- " at the same indent is skipped).
-		for j := i - 1; j >= 0; j-- {
-			prev := lines[j]
-			pt := strings.TrimLeft(prev, " ")
-			if pt == "" || strings.HasPrefix(pt, "#") {
-				continue
-			}
-			pi := len(prev) - len(pt)
-			if pi < itemIndent {
-				if !strings.HasPrefix(pt, "- ") && strings.HasSuffix(strings.TrimRight(pt, " "), ":") {
-					counts[itemIndent-pi]++
-				}
+		indent := len(line) - len(trimmed)
+		for len(stack) > 0 && stack[len(stack)-1].indent >= indent {
+			stack = stack[:len(stack)-1]
+		}
+		isItem := strings.HasPrefix(trimmed, "- ") || trimmed == "-"
+		if isItem && len(stack) > 0 && stack[len(stack)-1].owner {
+			counts[indent-stack[len(stack)-1].indent]++
+			samples++
+			if samples >= maxIndentSamples {
 				break
 			}
 		}
+		owner := !isItem && strings.HasSuffix(strings.TrimRight(stripYAMLComment(trimmed), " \t"), ":")
+		stack = append(stack, indentEntry{indent: indent, owner: owner})
 	}
 	best, bestN := defaultFrontmatterIndent, 0
 	for w, n := range counts {

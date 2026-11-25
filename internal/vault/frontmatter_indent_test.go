@@ -4,7 +4,9 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -73,5 +75,34 @@ func TestFrontmatterIndentPreserved(t *testing.T) {
 		root := indentNote(t, "---\ntitle: T\n---\nbody\n")
 		require.NoError(t, newService(root).UpdateFrontmatter(ctx, "n.md", map[string]any{"list": []string{"a"}}, nil))
 		assert.Equal(t, "---\ntitle: T\nlist:\n  - a\n---\nbody\n", readRaw(t, root))
+	})
+}
+
+func TestFrontmatterIndentCommentedKeyAndLargeList(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	t.Run("4-space list under a key with a trailing comment is preserved", func(t *testing.T) {
+		t.Parallel()
+		root := indentNote(t, "---\ntitle: T\ntags: # note\n    - a\n    - b\nother: 1\n---\nbody\n")
+		require.NoError(t, newService(root).UpdateFrontmatter(ctx, "n.md", map[string]any{"other": 2}, nil))
+		assert.Equal(t, "---\ntitle: T\ntags: # note\n    - a\n    - b\nother: 2\n---\nbody\n", readRaw(t, root))
+	})
+
+	t.Run("200000-item block list is scanned in linear time", func(t *testing.T) {
+		t.Parallel()
+		var sb strings.Builder
+		sb.WriteString("---\ntitle: T\nlist:\n")
+		for i := 0; i < 200000; i++ {
+			sb.WriteString("    - x\n")
+		}
+		sb.WriteString("other: 1\n---\nbody\n")
+		root := indentNote(t, sb.String())
+		start := time.Now()
+		require.NoError(t, newService(root).UpdateFrontmatter(ctx, "n.md", map[string]any{"other": 2}, nil))
+		assert.Less(t, time.Since(start), 2*time.Second)
+		out := readRaw(t, root)
+		assert.Contains(t, out, "list:\n    - x\n    - x\n")
+		assert.Contains(t, out, "other: 2\n")
 	})
 }
