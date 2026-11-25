@@ -148,7 +148,7 @@ func (s *Service) RenameHeading(ctx context.Context, path, heading, newHeading s
 		return nil, err
 	}
 
-	res, err := s.renameHeadingLocked(path, absPath, heading, newHeading, line, o)
+	res, err := s.renameHeadingLocked(path, absPath, heading, newHeading, line, updateLinks, o)
 	if err != nil {
 		return nil, err
 	}
@@ -177,7 +177,7 @@ func (s *Service) RenameHeading(ctx context.Context, path, heading, newHeading s
 // renameHeadingLocked performs the heading edit (and same-note anchor fix)
 // under s.mu in the standard sanitize -> lock -> symlink check -> if_match ->
 // atomic write order.
-func (s *Service) renameHeadingLocked(path, absPath, heading, newHeading string, line int, o writeOpts) (*RenameHeadingResult, error) {
+func (s *Service) renameHeadingLocked(path, absPath, heading, newHeading string, line int, updateLinks bool, o writeOpts) (*RenameHeadingResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -217,8 +217,9 @@ func (s *Service) renameHeadingLocked(path, absPath, heading, newHeading string,
 	lines[target.idx] = target.prefix + " " + newHeading + eol
 
 	// Same-note anchors [[#Old]]: not reachable through the vault-wide walk
-	// (empty link target), so fix them in this same write.
-	if res.LinksSkipped == "" {
+	// (empty link target), so fix them in this same write, only when the
+	// caller asked for link updates.
+	if updateLinks && res.LinksSkipped == "" {
 		mask := fenceMask(lines)
 		for i, l := range lines {
 			if mask[i] || !strings.Contains(l, "[[#") {

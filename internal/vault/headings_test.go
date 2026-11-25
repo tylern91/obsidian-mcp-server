@@ -229,6 +229,25 @@ func TestRenameHeading(t *testing.T) {
 		assert.Equal(t, "[[Target#Old]]\n", readFile(t, dir, "a.md"))
 	})
 
+	t.Run("same-note anchors follow updateLinks", func(t *testing.T) {
+		cases := []struct {
+			name        string
+			updateLinks bool
+			want        string
+		}{
+			{"false leaves [[#Old]] unchanged", false, "## New\nsee [[#Old]] and [[#Top#Old|alias]]\n"},
+			{"true rewrites [[#Old]]", true, "## New\nsee [[#New]] and [[#Top#New|alias]]\n"},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				svc, dir := newHeadingVault(t, map[string]string{"n.md": "## Old\nsee [[#Old]] and [[#Top#Old|alias]]\n"})
+				_, err := svc.RenameHeading(ctx, "n.md", "Old", "New", 0, tc.updateLinks)
+				require.NoError(t, err)
+				assert.Equal(t, tc.want, readFile(t, dir, "n.md"))
+			})
+		}
+	})
+
 	t.Run("ambiguous link target is reported and not rewritten", func(t *testing.T) {
 		svc, dir := newHeadingVault(t, map[string]string{
 			"x/Target.md": "## Old\n",

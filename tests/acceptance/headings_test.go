@@ -160,4 +160,28 @@ func TestHeadings_Acceptance(t *testing.T) {
 		assert.NotContains(t, names, "patch_note")
 		assert.Contains(t, names, "get_note_outline", "read tools stay registered")
 	})
+
+	t.Run("[AC-9] rename_heading with updateLinks=false leaves same-note [[#Old]] anchors unchanged while updateLinks=true rewrites them", func(t *testing.T) {
+		c, dir := newToolsClient(t)
+		writeNoteFile(t, dir, "Self.md", "## Old\nsee [[#Old]]\n")
+
+		off := callTool(t, c, "rename_heading", map[string]any{
+			"path": "Self.md", "heading": "Old", "newHeading": "Mid", "updateLinks": false,
+		})
+		require.False(t, off.IsError, toolText(t, off))
+		assert.Equal(t, "## Mid\nsee [[#Old]]\n", readNoteFile(t, dir, "Self.md"), "heading text changes, the anchor must not")
+
+		on := callTool(t, c, "rename_heading", map[string]any{
+			"path": "Self.md", "heading": "Mid", "newHeading": "New", "updateLinks": true,
+		})
+		require.False(t, on.IsError, toolText(t, on))
+		assert.Equal(t, "## New\nsee [[#Old]]\n", readNoteFile(t, dir, "Self.md"), "anchor to a different heading stays")
+
+		writeNoteFile(t, dir, "Self2.md", "## Old\nsee [[#Old]]\n")
+		both := callTool(t, c, "rename_heading", map[string]any{
+			"path": "Self2.md", "heading": "Old", "newHeading": "New",
+		})
+		require.False(t, both.IsError, toolText(t, both))
+		assert.Equal(t, "## New\nsee [[#New]]\n", readNoteFile(t, dir, "Self2.md"))
+	})
 }
