@@ -323,3 +323,42 @@ func TestIsInternalState_CaseInsensitive(t *testing.T) {
 		t.Error("IsInternalState(.OBSIDIAN-MCP/trash/x.md) = false, want true")
 	}
 }
+
+// ----------------------------------------------------------------------------
+// Unicode normalization
+// ----------------------------------------------------------------------------
+
+// macOS file systems return NFD names while users type NFC patterns, so both
+// forms must match each other.
+func TestPathFilter_IsIgnored_UnicodeNormalization(t *testing.T) {
+	t.Parallel()
+
+	const (
+		nfc = "café"
+		nfd = "café"
+	)
+
+	tests := []struct {
+		name    string
+		pattern string
+		path    string
+		want    bool
+	}{
+		{name: "NFC pattern matches NFD path", pattern: nfc, path: nfd + "/note.md", want: true},
+		{name: "NFD pattern matches NFC path", pattern: nfd, path: "Notes/" + nfc + "/note.md", want: true},
+		{name: "case-insensitive across forms", pattern: "CAFÉ", path: nfd + "/note.md", want: true},
+		{name: "ASCII unchanged", pattern: ".git", path: "a/.git/b.md", want: true},
+		{name: "ASCII partial prefix still no match", pattern: ".git", path: ".git-backup/b.md", want: false},
+		{name: "different accent does not match", pattern: nfc, path: "cafe/note.md", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			f := vault.NewPathFilter([]string{tt.pattern}, nil)
+			if got := f.IsIgnored(tt.path); got != tt.want {
+				t.Errorf("IsIgnored(%q) with pattern %q = %v, want %v", tt.path, tt.pattern, got, tt.want)
+			}
+		})
+	}
+}

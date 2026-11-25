@@ -20,7 +20,9 @@ type ReplaceResult struct {
 // backreferences) vs. literal substring matching. maxOccurrences <= 0 means
 // unbounded; otherwise only the first maxOccurrences matches (in document
 // order) are replaced, and OccurrencesFound still reports the true total so
-// a caller can tell the result was capped. An empty pattern is rejected.
+// a caller can tell the result was capped. An empty pattern, or a regex that
+// can match the empty string (x*, ^, \b), is rejected: a zero-width match
+// would insert the replacement at positions the caller never named.
 // WithIfMatch makes the replace conditional on the note's current etag.
 func (s *Service) ReplaceInNote(ctx context.Context, path, pattern, replacement string, isRegex bool, maxOccurrences int, opts ...WriteOpt) (*ReplaceResult, error) {
 	if err := ctx.Err(); err != nil {
@@ -66,6 +68,9 @@ func (s *Service) ReplaceInNote(ctx context.Context, path, pattern, replacement 
 	}
 
 	matches := re.FindAllStringSubmatchIndex(content, -1)
+	if isRegex && matchesZeroWidth(re, matches) {
+		return nil, &PathError{Op: "replace_in_note", Path: path, Err: fmt.Errorf("regex must not match the empty string")}
+	}
 	found := len(matches)
 	if found == 0 {
 		return &ReplaceResult{Path: path, OccurrencesFound: 0, Replaced: 0}, nil
@@ -102,4 +107,18 @@ func (s *Service) ReplaceInNote(ctx context.Context, path, pattern, replacement 
 	}
 
 	return &ReplaceResult{Path: path, OccurrencesFound: found, Replaced: limit}, nil
+}
+
+// matchesZeroWidth reports whether re can match the empty string, either in
+// isolation or at any position the note's content produced.
+func matchesZeroWidth(re *regexp.Regexp, matches [][]int) bool {
+	if re.MatchString("") {
+		return true
+	}
+	for _, m := range matches {
+		if m[0] == m[1] {
+			return true
+		}
+	}
+	return false
 }
