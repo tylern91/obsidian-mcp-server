@@ -10,6 +10,10 @@ func SetAfterUnlockedReadHook(fn func(rel string)) (restore func()) {
 	return func() { afterUnlockedReadHook = prev }
 }
 
+// DetectSequenceIndent exposes the frontmatter sequence-indent scan so a test
+// can time it without the YAML encode that UpdateFrontmatter adds.
+func DetectSequenceIndent(src string) int { return detectSequenceIndent(src) }
+
 // SetBeforeRenameHook installs a hook that atomic writes call after the temp
 // file is synced and before the rename; a non-nil return aborts the write.
 // The returned func restores the previous hook.

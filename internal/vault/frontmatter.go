@@ -219,7 +219,7 @@ func (s *Service) UpdateFrontmatter(ctx context.Context, path string, updates ma
 		mapping.Content = kept
 	}
 
-	out, marshalErr := yaml.Marshal(mapping)
+	out, marshalErr := marshalFrontmatter(mapping, raw)
 	if marshalErr != nil {
 		return &PathError{Op: "update_frontmatter", Path: path, Err: fmt.Errorf("marshal: %w", marshalErr)}
 	}
