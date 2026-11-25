@@ -186,7 +186,15 @@ jobs:
           echo "linux_sha=$linux_sha" >> "$GITHUB_OUTPUT"
 
       - name: Re-stamp CHANGELOG
-        run: bash scripts/stamp-changelog-refs.sh "${{ inputs.version }}" || true
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -Eeuo pipefail
+          # The script takes a bare version; inputs.version is v-prefixed.
+          if ! bash scripts/stamp-changelog-refs.sh "${VERSION#v}"; then
+            echo "::error::failed to stamp CHANGELOG refs for ${VERSION}"
+            exit 1
+          fi
 
       - name: Re-render notes with real digests
         env:
@@ -204,6 +212,18 @@ jobs:
         run: |
           gh release edit "${{ inputs.version }}" \
             --notes-file /tmp/RELEASE_BODY.md --repo "${{ github.repository }}"
+
+      - name: Assert release body has commit links
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -Eeuo pipefail
+          n="$(gh release view "$VERSION" --repo "${{ github.repository }}" --json body --jq '[.body | match("/commit/"; "g")] | length')"
+          if [ "$n" -eq 0 ]; then
+            echo "::error::release ${VERSION} body has no /commit/ links (stamp-changelog-refs.sh regression?)"
+            exit 1
+          fi
 
   sync-homebrew:
     needs: upload-assets
