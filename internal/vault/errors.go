@@ -16,6 +16,7 @@ var (
 	ErrPathRestricted     = errors.New("path is restricted")
 	ErrInvalidFrontmatter = errors.New("invalid frontmatter")
 	ErrHeadingNotFound    = errors.New("heading not found")
+	ErrAmbiguousHeading   = errors.New("ambiguous heading")
 	ErrFileTooLarge       = errors.New("file exceeds maximum allowed size")
 	ErrRevisionConflict   = errors.New("revision conflict: if_match does not match current content")
 	ErrNotANote           = errors.New("not a note: path is a directory or not a regular file")

@@ -35,7 +35,8 @@ A Go [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server for 
 | `manage_tags` | Add or remove a tag on a note | `path`, `action`: add/remove (required), `tag` (required), `location`: frontmatter/inline, `if_match` (optional etag) |
 | `list_all_tags` | Aggregate all tags across the vault with counts | `prettyPrint` |
 | `get_backlinks` | Find all notes that link to a target note | `path` (required), `prettyPrint` |
-| `patch_note` | Apply a heading-anchored patch to a note | `path`, `heading`, `position`: before/after/replace_body, `content` (all required), `if_match` (optional etag) |
+| `patch_note` | Apply a heading-anchored patch to a note | `path`, `heading`, `position`: before/after/replace_body, `content` (all required), `line` (optional int, 1-based heading line from `get_note_outline`), `if_match` (optional etag) |
+| `rename_heading` | Rename a heading, keeping its level; rewrites anchors that point at it vault-wide by default | `path`, `heading`, `newHeading` (all required), `line` (optional int, disambiguates duplicates), `updateLinks` (bool, default true), `if_match` (optional etag) |
 | `delete_note` | Move a note to `.obsidian-mcp/trash` (requires confirm); pass `permanent: true` to hard-delete instead | `path`, `confirm` (must match path exactly), `permanent` (optional, default false), `if_match` (optional etag) |
 | `move_note` | Move or rename a note within the vault (requires confirm); rewrites unambiguous inbound links by default; if a link rewrite fails after the move, the call still succeeds and reports `linksComplete: false` and `linkRewriteError` | `src`, `dst`, `confirm` (must match src exactly), `updateLinks` (bool, default true), `dryRun` (bool, default false), `if_match` (optional etag; ignored when `dryRun` is true) |
 | `search_notes` | BM25 full-text search with ranked results and match snippets | `query` (required), `limit`, `maxMatchesPerFile`, `caseSensitive`, `searchContent`, `searchFrontmatter`, `pathScope`, `prettyPrint` |
@@ -61,6 +62,10 @@ A Go [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server for 
 - `before` — inserted immediately before the heading line
 - `after` — inserted after the heading's body (before the next same-level or higher heading)
 - `replace_body` — replaces everything between the heading line and the next same-level heading
+
+Headings inside fenced code blocks (``` or ~~~) are not headings: `patch_note`, `rename_heading` and `get_note_outline` ignore them, and a `#` line in a fence does not end a section. When the heading text matches more than one heading, `patch_note` and `rename_heading` fail with `AMBIGUOUS_HEADING` and list each match as `line N (level K)`; pass `line` (the 1-based line number from `get_note_outline`) to pick one. A `line` that is not a heading with matching text is a heading-not-found error.
+
+**`rename_heading` semantics**: rewrites the heading text in place and keeps its level. With `updateLinks` (default), anchors that point at the old heading are rewritten across the vault: `[[Note#Old]]`, `[[Note#Old|alias]]`, `![[Note#Old]]`, same-note `[[#Old]]`, and Markdown `[text](Note.md#old)` (slug and `%20` styles are preserved). Links whose bare target is shared by another note are reported as `ambiguous` and left unchanged, as in `move_note`. If an earlier heading with the same text remains in the note, links keep resolving to it, so they are left alone and `linksSkipped` says why. If link rewriting fails after the heading is renamed, the call still succeeds and reports `linksComplete: false` and `linkRewriteError`.
 
 **`search_notes` parameters**:
 

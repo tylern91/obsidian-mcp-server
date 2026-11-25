@@ -11,7 +11,7 @@ import (
 
 func patchNoteSpec(deps Deps) toolSpec {
 	tool := mcp.NewTool("patch_note",
-		mcp.WithDescription("Apply a heading-anchored patch to a note. Insert content before or after a heading, or replace the heading's body."),
+		mcp.WithDescription("Apply a heading-anchored patch to a note. Insert content before or after a heading, or replace the heading's body. Headings inside fenced code blocks are ignored. If several headings share the text, the call fails with AMBIGUOUS_HEADING listing each match; pass line to choose one."),
 		mcp.WithString("path",
 			mcp.Required(),
 			mcp.Description("Path to the note relative to the vault root"),
@@ -19,6 +19,9 @@ func patchNoteSpec(deps Deps) toolSpec {
 		mcp.WithString("heading",
 			mcp.Required(),
 			mcp.Description("Heading text to anchor the patch (without the # prefix, e.g. \"Introduction\")"),
+		),
+		mcp.WithNumber("line",
+			mcp.Description("Optional 1-based line number of the heading (as returned by get_note_outline). Required to disambiguate when several headings share the same text; the line must hold a heading whose text matches"),
 		),
 		mcp.WithString("position",
 			mcp.Required(),
@@ -60,11 +63,16 @@ func patchNoteHandler(deps Deps) server.ToolHandlerFunc {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		ifMatch := req.GetString("if_match", "")
+		line, errResult := headingLineArg(req)
+		if errResult != nil {
+			return errResult, nil
+		}
 
 		if err := deps.Vault.PatchNote(ctx, path, vault.PatchOp{
 			Heading:  heading,
 			Position: position,
 			Content:  content,
+			Line:     line,
 		}, ifMatchOpt(ifMatch)...); err != nil {
 			return vaultWriteError(err), nil
 		}

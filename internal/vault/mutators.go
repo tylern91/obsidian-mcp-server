@@ -14,6 +14,10 @@ type PatchOp struct {
 	Heading  string // heading text without '#' prefix (e.g. "Introduction")
 	Position string // "before" | "after" | "replace_body"
 	Content  string // content to insert or use as replacement
+	// Line optionally selects one heading by its 1-based line number (as
+	// returned by get_note_outline). Zero means unset. When set it must point
+	// at a heading line whose text matches Heading, else ErrHeadingNotFound.
+	Line int
 }
 
 // PatchNote applies a heading-anchored patch to a note.
@@ -53,29 +57,14 @@ func (s *Service) PatchNote(ctx context.Context, path string, p PatchOp, opts ..
 
 	lines := strings.Split(string(data), "\n")
 
-	// Find the heading line.
-	headingIdx := -1
-	var headingPrefix string
-	for i, line := range lines {
-		if isHeadingLine(line, p.Heading) {
-			headingIdx = i
-			headingPrefix = headingLevel(line)
-			break
-		}
+	// Locate the heading (fence-aware; ambiguity is an error, never a guess).
+	headings := scanHeadings(lines)
+	target, err := selectHeading(headings, p.Heading, p.Line)
+	if err != nil {
+		return &PathError{Op: "patch", Path: path, Err: err}
 	}
-	if headingIdx == -1 {
-		return &PathError{Op: "patch", Path: path, Err: ErrHeadingNotFound}
-	}
-
-	// Find the end of the heading's body: next heading of same or higher level, or EOF.
-	bodyEnd := len(lines)
-	for i := headingIdx + 1; i < len(lines); i++ {
-		lvl := headingLevel(lines[i])
-		if lvl != "" && len(lvl) <= len(headingPrefix) {
-			bodyEnd = i
-			break
-		}
-	}
+	headingIdx := target.idx
+	bodyEnd := sectionEnd(lines, headings, target)
 
 	var result []string
 	switch p.Position {
@@ -99,15 +88,6 @@ func (s *Service) PatchNote(ctx context.Context, path string, p PatchOp, opts ..
 		return &PathError{Op: "patch", Path: path, Err: err}
 	}
 	return nil
-}
-
-// isHeadingLine reports whether line is a markdown heading with the given text.
-// A leading '#' run must be followed by a space to count as a heading (ATX
-// heading syntax), matching headingLevel's stricter rule — otherwise a
-// malformed line like "#Introduction" would match here but produce an empty
-// level from headingLevel, breaking the same-or-higher-level scan in PatchNote.
-func isHeadingLine(line, heading string) bool {
-	return headingLevel(line) != "" && strings.TrimSpace(strings.TrimLeft(line, "#")) == heading
 }
 
 // headingLevel returns the '#' prefix of a heading line, or "" if not a heading.
