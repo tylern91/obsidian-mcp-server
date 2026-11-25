@@ -89,7 +89,13 @@ func manageTagsHandler(deps Deps) server.ToolHandlerFunc {
 
 func listAllTagsSpec(deps Deps) toolSpec {
 	tool := mcp.NewTool("list_all_tags",
-		mcp.WithDescription("Aggregate all tags across the entire vault with usage counts."),
+		mcp.WithDescription("Aggregate all tags across the entire vault with usage counts, ordered by count descending then name. Use limit/offset to page; the response reports total and truncated."),
+		mcp.WithNumber("limit",
+			mcp.Description("Maximum number of tags to return (default: all)"),
+		),
+		mcp.WithNumber("offset",
+			mcp.Description("Number of tags to skip before returning results (default: 0)"),
+		),
 		mcp.WithBoolean("prettyPrint",
 			mcp.Description("Format the JSON response with indentation (default: false)"),
 		),
@@ -101,17 +107,43 @@ func listAllTagsSpec(deps Deps) toolSpec {
 
 func listAllTagsHandler(deps Deps) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		limit := req.GetInt("limit", 0)
+		offset := req.GetInt("offset", 0)
+		if limit < 0 {
+			return mcp.NewToolResultError("limit must be >= 0"), nil
+		}
+		if offset < 0 {
+			return mcp.NewToolResultError("offset must be >= 0"), nil
+		}
+
 		tagCounts, err := deps.Vault.AggregateTags(ctx)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		top := vault.TopTagsByCount(tagCounts, len(tagCounts))
+		all := vault.TopTagsByCount(tagCounts, len(tagCounts))
+		total := len(all)
+		page := all
+		if offset >= len(page) {
+			page = []vault.TagCount{}
+		} else {
+			page = page[offset:]
+		}
+		if limit > 0 && len(page) > limit {
+			page = page[:limit]
+		}
 
 		type allTagsResponse struct {
-			Tags  []vault.TagCount `json:"tags"`
-			Total int              `json:"total"`
+			Tags      []vault.TagCount `json:"tags"`
+			Total     int              `json:"total"`
+			Offset    int              `json:"offset"`
+			Truncated bool             `json:"truncated"`
 		}
-		return response.ToolResult(req, deps.PrettyPrint, allTagsResponse{Tags: top, Total: len(top)})
+		return response.ToolResult(req, deps.PrettyPrint, allTagsResponse{
+			Tags:      page,
+			Total:     total,
+			Offset:    offset,
+			Truncated: offset+len(page) < total,
+		})
 	}
 }

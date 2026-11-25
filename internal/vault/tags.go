@@ -216,7 +216,7 @@ func (s *Service) AddTag(ctx context.Context, path, tag, location string, opts .
 	}
 
 	if location == "frontmatter" {
-		content, err = addTagToFrontmatter(mapping, tag, body, hasCRLFFrontmatter(string(data)))
+		content, err = addTagToFrontmatter(mapping, rawFM, tag, body, hasCRLFFrontmatter(string(data)))
 		if err != nil {
 			return &PathError{Op: "add_tag", Path: path, Err: err}
 		}
@@ -256,7 +256,7 @@ func (s *Service) AddTag(ctx context.Context, path, tag, location string, opts .
 // addTagToFrontmatter appends tag to the "tags" sequence in mapping (or creates
 // the key if absent).  Returns the fully assembled file content on success.
 // No-op if the tag is already present.
-func addTagToFrontmatter(mapping *yaml.Node, tag, body string, crlf bool) (string, error) {
+func addTagToFrontmatter(mapping *yaml.Node, rawFM, tag, body string, crlf bool) (string, error) {
 	// Find the "tags" key in the mapping.
 	tagsIdx := -1
 	for i := 0; i+1 < len(mapping.Content); i += 2 {
@@ -290,7 +290,7 @@ func addTagToFrontmatter(mapping *yaml.Node, tag, body string, crlf bool) (strin
 		for _, child := range seqNode.Content {
 			if child.Value == tag {
 				// Already present — reassemble unchanged.
-				out, err := yaml.Marshal(mapping)
+				out, err := marshalFrontmatter(mapping, rawFM)
 				if err != nil {
 					return "", fmt.Errorf("marshal: %w", err)
 				}
@@ -301,7 +301,7 @@ func addTagToFrontmatter(mapping *yaml.Node, tag, body string, crlf bool) (strin
 		seqNode.Content = append(seqNode.Content, tagScalar)
 	}
 
-	out, err := yaml.Marshal(mapping)
+	out, err := marshalFrontmatter(mapping, rawFM)
 	if err != nil {
 		return "", fmt.Errorf("marshal: %w", err)
 	}
@@ -433,7 +433,7 @@ func (s *Service) RemoveTag(ctx context.Context, path, tag string, opts ...Write
 
 	var assembled string
 	if hasFM && mapping != nil {
-		marshaledFM, marshalErr := yaml.Marshal(mapping)
+		marshaledFM, marshalErr := marshalFrontmatter(mapping, rawFM)
 		if marshalErr != nil {
 			return &PathError{Op: "remove_tag", Path: path, Err: fmt.Errorf("marshal: %w", marshalErr)}
 		}

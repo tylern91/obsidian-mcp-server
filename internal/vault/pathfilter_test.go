@@ -362,3 +362,60 @@ func TestPathFilter_IsIgnored_UnicodeNormalization(t *testing.T) {
 		})
 	}
 }
+
+func TestPathFilter_IsIgnored_PathPrefix(t *testing.T) {
+	t.Parallel()
+
+	f := vault.NewPathFilter([]string{"Journal/Private", "/Archive/Old/", ".git"}, nil)
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{"Journal/Private", true},
+		{"Journal/Private/x.md", true},
+		{"journal/PRIVATE/x.md", true},
+		{"Journal/PrivateStuff", false},
+		{"Journal/PrivateStuff/x.md", false},
+		{"Other/Journal/Private", false},
+		{"Journal", false},
+		{"Archive/Old/a.md", true},
+		{"Archive/Older/a.md", false},
+		{"Deep/.git/config", true}, // slashless entries keep any-component matching
+		{"./Journal/Private/x.md", true},
+	}
+	for _, tt := range tests {
+		if got := f.IsIgnored(tt.path); got != tt.want {
+			t.Errorf("IsIgnored(%q) = %v, want %v", tt.path, got, tt.want)
+		}
+	}
+}
+
+func TestPathFilter_IsIgnored_PathPrefixNFC(t *testing.T) {
+	t.Parallel()
+
+	nfc := "Café/Secret"
+	nfd := "Café/Secret"
+	for _, entry := range []string{nfc, nfd} {
+		f := vault.NewPathFilter([]string{entry}, nil)
+		for _, p := range []string{nfc + "/a.md", nfd + "/a.md"} {
+			if !f.IsIgnored(p) {
+				t.Errorf("entry %q should ignore %q", entry, p)
+			}
+		}
+	}
+}
+
+func TestValidateIgnorePattern(t *testing.T) {
+	t.Parallel()
+
+	for _, bad := range []string{"", "  ", ".", "..", "/", "a/../b", "../a", "a/./b"} {
+		if err := vault.ValidateIgnorePattern(bad); err == nil {
+			t.Errorf("ValidateIgnorePattern(%q) = nil, want error", bad)
+		}
+	}
+	for _, ok := range []string{".git", "Journal/Private", "/Archive/", "..hidden", "a..b/c"} {
+		if err := vault.ValidateIgnorePattern(ok); err != nil {
+			t.Errorf("ValidateIgnorePattern(%q) = %v, want nil", ok, err)
+		}
+	}
+}

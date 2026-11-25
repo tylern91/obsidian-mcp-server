@@ -2,7 +2,9 @@ package tools
 
 import (
 	"context"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -31,6 +33,7 @@ func TestAllSpecs(t *testing.T) {
 		"list_all_tags":             false,
 		"get_backlinks":             false,
 		"patch_note":                true,
+		"rename_heading":            true,
 		"delete_note":               true,
 		"move_note":                 true,
 		"search_notes":              false,
@@ -190,4 +193,39 @@ func TestNewToolSpecDerivesMutatingFromReadOnlyHint(t *testing.T) {
 			t.Errorf("%s: Mutating=%v disagrees with ReadOnlyHint=%v", spec.Tool.Name, spec.Mutating, *hint)
 		}
 	}
+}
+
+func TestTimeoutGuard(t *testing.T) {
+	slowErr := func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		<-ctx.Done()
+		return mcp.NewToolResultError(ctx.Err().Error()), nil
+	}
+	res, err := timeoutGuard("slow", 5*time.Millisecond, slowErr)(context.Background(), mcp.CallToolRequest{})
+	if err != nil || !res.IsError {
+		t.Fatalf("want tool error, got res=%v err=%v", res, err)
+	}
+	if txt := res.Content[0].(mcp.TextContent).Text; !strings.Contains(txt, `"slow" timed out after 5ms`) {
+		t.Errorf("unclear timeout message: %q", txt)
+	}
+
+	// A handler that finishes OK despite the deadline keeps its result.
+	late := func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		<-ctx.Done()
+		return mcp.NewToolResultText("committed"), nil
+	}
+	res, _ = timeoutGuard("late", 5*time.Millisecond, late)(context.Background(), mcp.CallToolRequest{})
+	if res.IsError {
+		t.Error("successful result must not be replaced")
+	}
+
+	// d <= 0 is a pass-through, and a cancelled parent is not reported as a timeout.
+	if res, _ = timeoutGuard("off", 0, slowErr)(canceledCtx(), mcp.CallToolRequest{}); !res.IsError || strings.Contains(res.Content[0].(mcp.TextContent).Text, "timed out") {
+		t.Errorf("zero timeout must pass the handler result through: %v", res)
+	}
+}
+
+func canceledCtx() context.Context {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	return ctx
 }

@@ -2,6 +2,8 @@ package tools
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -39,6 +41,8 @@ type VaultService interface {
 	VaultStats(ctx context.Context, opts vault.VaultStatsOpts) (*vault.VaultStats, error)
 	Root() string
 
+	RenameHeading(ctx context.Context, path, heading, newHeading string, line int, updateLinks bool, opts ...vault.WriteOpt) (*vault.RenameHeadingResult, error)
+
 	GetNoteOutline(ctx context.Context, path string) ([]vault.HeadingInfo, error)
 	ReadNoteLines(ctx context.Context, path string, startLine, lineCount int) (*vault.NoteLines, error)
 }
@@ -48,6 +52,10 @@ type VaultService interface {
 type SearchService interface {
 	SearchBM25(ctx context.Context, opts search.BM25Options) ([]search.BM25Result, error)
 	SearchRegex(ctx context.Context, opts search.RegexOptions) ([]search.RegexResult, error)
+	// SearchBM25Total and SearchRegexTotal also return the match count before
+	// the caller's limit was applied, so handlers can report truncation.
+	SearchBM25Total(ctx context.Context, opts search.BM25Options) ([]search.BM25Result, int, error)
+	SearchRegexTotal(ctx context.Context, opts search.RegexOptions) ([]search.RegexResult, int, error)
 }
 
 // PeriodicService defines the periodic note operations that tool handlers depend on.
@@ -67,6 +75,9 @@ type Deps struct {
 	MaxResults  int    // maximum number of search results
 	ReadOnly    bool   // when true, mutating tools are neither registered nor callable
 	VaultName   string // vault name used to build obsidian:// deep links
+
+	// ToolTimeout bounds each tool call with context.WithTimeout; 0 disables it.
+	ToolTimeout time.Duration
 }
 
 // toolSpec bundles an MCP tool definition with its handler and whether it
@@ -101,6 +112,7 @@ func allSpecs(deps Deps) []toolSpec {
 		listAllTagsSpec(deps),
 		getBacklinksSpec(deps),
 		patchNoteSpec(deps),
+		renameHeadingSpec(deps),
 		deleteNoteSpec(deps),
 		moveNoteSpec(deps),
 		searchNotesSpec(deps),
@@ -125,7 +137,7 @@ func allSpecs(deps Deps) []toolSpec {
 // one. See readOnlyGuard for the second layer of that defense.
 func RegisterAll(s *server.MCPServer, deps Deps) {
 	for _, spec := range allSpecs(deps) {
-		handler := spec.Handler
+		handler := timeoutGuard(spec.Tool.Name, deps.ToolTimeout, spec.Handler)
 		if spec.Mutating {
 			handler = readOnlyGuard(deps.ReadOnly, handler)
 			if deps.ReadOnly {
@@ -148,5 +160,28 @@ func readOnlyGuard(readOnly bool, handler server.ToolHandlerFunc) server.ToolHan
 	}
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		return mcp.NewToolResultError("server is running in --read-only mode"), nil
+	}
+}
+
+// timeoutGuard bounds a handler with context.WithTimeout when d > 0. Handlers
+// are not preempted: the deadline is observed by every context-aware step
+// (vault walks, search scans). When the deadline has passed and the handler
+// returned a tool error, that error is replaced with a clear timeout message.
+// A handler that finished successfully despite the deadline (for example a
+// write that was already committed) keeps its result.
+func timeoutGuard(name string, d time.Duration, handler server.ToolHandlerFunc) server.ToolHandlerFunc {
+	if d <= 0 {
+		return handler
+	}
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		tctx, cancel := context.WithTimeout(ctx, d)
+		defer cancel()
+		res, err := handler(tctx, req)
+		if errors.Is(tctx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
+			if err != nil || (res != nil && res.IsError) {
+				return mcp.NewToolResultError(fmt.Sprintf("tool %q timed out after %s (raise --tool-timeout / OBSIDIAN_TOOL_TIMEOUT or narrow the request)", name, d)), nil
+			}
+		}
+		return res, err
 	}
 }

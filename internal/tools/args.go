@@ -112,5 +112,8 @@ func vaultWriteError(err error) *mcp.CallToolResult {
 	if errors.Is(err, vault.ErrNotANote) {
 		return mcp.NewToolResultError("NOT_A_NOTE: " + err.Error())
 	}
+	if errors.Is(err, vault.ErrAmbiguousHeading) {
+		return mcp.NewToolResultError("AMBIGUOUS_HEADING: " + err.Error() + " (use the line numbers from get_note_outline)")
+	}
 	return mcp.NewToolResultError(err.Error())
 }
