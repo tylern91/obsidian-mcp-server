@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tylern91/obsidian-mcp-server/internal/config"
 )
@@ -448,6 +449,42 @@ func TestConfig_Acceptance(t *testing.T) {
 		}
 		if cfg.ClientCAPath != "/path/to/ca.pem" {
 			t.Errorf("ClientCAPath = %q, want /path/to/ca.pem", cfg.ClientCAPath)
+		}
+	})
+
+	t.Run("[AC-18] session-max-lifetime defaults to 0 (disabled), honors flag over env, and rejects negative or malformed values", func(t *testing.T) {
+		vault := t.TempDir()
+		cfg, err := config.Load([]string{"--vault", vault})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.SessionMaxLifetime != 0 {
+			t.Errorf("SessionMaxLifetime = %v, want 0 (disabled by default)", cfg.SessionMaxLifetime)
+		}
+
+		t.Setenv("OBSIDIAN_SESSION_MAX_LIFETIME", "2h")
+		cfg, err = config.Load([]string{"--vault", vault})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.SessionMaxLifetime != 2*time.Hour {
+			t.Errorf("SessionMaxLifetime = %v, want 2h from env", cfg.SessionMaxLifetime)
+		}
+
+		cfg, err = config.Load([]string{"--vault", vault, "--session-max-lifetime", "90m"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.SessionMaxLifetime != 90*time.Minute {
+			t.Errorf("SessionMaxLifetime = %v, want 90m (flag over env)", cfg.SessionMaxLifetime)
+		}
+
+		if _, err := config.Load([]string{"--vault", vault, "--session-max-lifetime", "-1h"}); err == nil {
+			t.Error("expected error for negative session-max-lifetime, got nil")
+		}
+		t.Setenv("OBSIDIAN_SESSION_MAX_LIFETIME", "soon")
+		if _, err := config.Load([]string{"--vault", vault}); err == nil {
+			t.Error("expected error for malformed OBSIDIAN_SESSION_MAX_LIFETIME, got nil")
 		}
 	})
 }

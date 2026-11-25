@@ -247,7 +247,7 @@ func (s *Service) rewriteNoteLocked(rel, abs string, mv *moveCtx) ([]LinkRewrite
 	if int64(len(newContent)) > maxFileSizeBytes {
 		return nil, &PathError{Op: "rewrite-links", Path: rel, Err: ErrFileTooLarge}
 	}
-	if err := os.WriteFile(abs, []byte(newContent), 0644); err != nil {
+	if err := s.writeFileAtomic(abs, []byte(newContent)); err != nil {
 		return nil, &PathError{Op: "rewrite-links", Path: rel, Err: err}
 	}
 	return found, nil

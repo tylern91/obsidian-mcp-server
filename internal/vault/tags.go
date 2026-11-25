@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -247,7 +246,7 @@ func (s *Service) AddTag(ctx context.Context, path, tag, location string, opts .
 		return nil
 	}
 
-	if writeErr := os.WriteFile(absPath, []byte(content), 0644); writeErr != nil {
+	if writeErr := s.writeFileAtomic(absPath, []byte(content)); writeErr != nil {
 		return &PathError{Op: "add_tag", Path: path, Err: writeErr}
 	}
 
@@ -443,7 +442,7 @@ func (s *Service) RemoveTag(ctx context.Context, path, tag string, opts ...Write
 		assembled = newBody
 	}
 
-	if writeErr := os.WriteFile(absPath, []byte(assembled), 0644); writeErr != nil {
+	if writeErr := s.writeFileAtomic(absPath, []byte(assembled)); writeErr != nil {
 		return &PathError{Op: "remove_tag", Path: path, Err: writeErr}
 	}
 

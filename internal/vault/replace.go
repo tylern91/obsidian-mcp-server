@@ -3,7 +3,6 @@ package vault
 import (
 	"context"
 	"fmt"
-	"os"
 	"regexp"
 	"strings"
 )
@@ -96,7 +95,7 @@ func (s *Service) ReplaceInNote(ctx context.Context, path, pattern, replacement 
 	}
 
 	if newContent != content {
-		if writeErr := os.WriteFile(absPath, []byte(newContent), 0644); writeErr != nil {
+		if writeErr := s.writeFileAtomic(absPath, []byte(newContent)); writeErr != nil {
 			return nil, &PathError{Op: "replace_in_note", Path: path, Err: writeErr}
 		}
 	}

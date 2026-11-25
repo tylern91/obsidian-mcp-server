@@ -16,6 +16,9 @@ type VaultService interface {
 	GetBacklinks(ctx context.Context, targetPath string) ([]vault.Backlink, error)
 	WalkNotes(ctx context.Context, fn func(rel, abs string) error) error
 	Root() string
+	// Generation increases after every note write, move or delete, so cached
+	// vault-wide results can detect edits that leave directory mtimes alone.
+	Generation() uint64
 }
 
 // PeriodicService defines the periodic note operations used by resource handlers.

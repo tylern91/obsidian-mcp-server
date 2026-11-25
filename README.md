@@ -272,6 +272,7 @@ Configuration follows **CLI flag > environment variable > default** precedence.
 | `--allow-non-loopback` | `OBSIDIAN_ALLOW_NON_LOOPBACK` | `false` | Allows `--http-bind` to a non-loopback address. Requires non-empty `--allowed-hosts` and `--allowed-origins` — an explicit, three-flag confirmation gate. |
 | `--allowed-hosts` | `OBSIDIAN_ALLOWED_HOSTS` | *(empty)* | Comma-separated Host header allowlist for `--transport http`. Required with `--allow-non-loopback`. |
 | `--allowed-origins` | `OBSIDIAN_ALLOWED_ORIGINS` | *(empty)* | Comma-separated Origin header allowlist for `--transport http`. Required with `--allow-non-loopback`. |
+| `--session-max-lifetime` | `OBSIDIAN_SESSION_MAX_LIFETIME` | `0` (disabled) | Go duration such as `8h` or `90m`. Absolute maximum age of an HTTP session: once a session is older than this it expires even if the client is still active, and the client must re-initialize. Sessions otherwise use a 30-minute sliding idle timeout. `0` disables the cap; negative or unparseable values cause a startup error. Applies to `--transport http` only. |
 | `--client-ca` | `OBSIDIAN_CLIENT_CA` | *(none)* | Path to a PEM file of trusted client CAs. Enables mandatory mutual TLS for `--transport http` — connections without a valid client certificate are rejected. |
 
 ### Examples
@@ -296,6 +297,8 @@ OBSIDIAN_LOG_LEVEL=debug obsidian-mcp --vault ./my-vault
 # token auto-generated on first run — see SECURITY.md § HTTP transport)
 obsidian-mcp --vault ./my-vault --transport http --http-port 8443
 ```
+
+**HTTP auth token length**: a token supplied through `OBSIDIAN_AUTH_TOKEN` (or a hand-written token file) shorter than 32 characters is still accepted, but startup logs a warning with its length (never the value). Use at least 32 random characters, for example `openssl rand -hex 32`. The auto-generated token is 32 random bytes (64 hex characters) and never triggers the warning.
 
 **Precedence in action**: with `OBSIDIAN_LOG_LEVEL=debug` exported, `obsidian-mcp --vault ... --log-level info` runs at `info` — the explicit flag wins. Unset flags inherit the env var; if neither is set, the default applies.
 

@@ -8,3 +8,8 @@ var PathFromURI = pathFromURI
 func VaultStatsHandler(deps Deps) server.ResourceHandlerFunc {
 	return cachedResourceHandler(deps, computeVaultStats)
 }
+
+// VaultTagsHandler exposes the cached vault-tags resource handler.
+func VaultTagsHandler(deps Deps) server.ResourceHandlerFunc {
+	return cachedResourceHandler(deps, computeVaultTags)
+}
